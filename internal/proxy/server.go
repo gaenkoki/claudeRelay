@@ -48,6 +48,7 @@ type Server struct {
 	tokens           *tokenManager
 	metrics          *metrics.Recorder
 	usage            *accountUsageManager
+	models           *modelCatalog
 	accounting       *accounting.Manager
 	sampler          *subscriptionSampler
 	routingPolicy    *routingPolicyState
@@ -147,6 +148,7 @@ func NewServer(cfg config.Config, database *store.Store) (*Server, error) {
 		server.allowA6APIProbes.Store(allowed)
 	}
 	server.usage = newAccountUsageManager(database, server.tokens, server.client, upstream)
+	server.models = newModelCatalog(server.fetchModelCatalog)
 	server.accounting = accounting.NewManager(database)
 	server.httpServer = &http.Server{
 		Addr:              cfg.Listen,
@@ -200,11 +202,15 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /ops/v1/availability", s.availability)
 	mux.HandleFunc("POST /v1/messages", s.forward)
 	mux.HandleFunc("POST /v1/messages/count_tokens", s.forward)
+	mux.HandleFunc("GET /v1/models", s.listModels)
+	mux.HandleFunc("GET /v1/models/{model_id}", s.getModel)
 	mux.HandleFunc("GET /admin/v1/overview", s.overview)
 	mux.HandleFunc("POST /admin/v1/routing/policy", s.setRoutingPolicy)
 	mux.HandleFunc("POST /admin/v1/official/version-bounds", s.setOfficialVersionBounds)
 	mux.HandleFunc("POST /admin/v1/official/a6api-probes", s.setA6APIProbes)
 	mux.HandleFunc("POST /admin/v1/refusal-billing", s.setRefusalBilling)
+	mux.HandleFunc("GET /admin/v1/models", s.modelCatalogView)
+	mux.HandleFunc("POST /admin/v1/models/refresh", s.refreshModels)
 	mux.HandleFunc("GET /admin/v1/requests", s.listRequests)
 	mux.HandleFunc("GET /admin/v1/accounts", s.listAccounts)
 	mux.HandleFunc("POST /admin/v1/accounts/import", s.importAccount)

@@ -373,6 +373,15 @@
           <p id="routingPolicyDescription" class="note">按会话与缓存前缀保持账号亲和，新会话优先选择当前负载较低的账号。</p>
           <p class="routing-policy-warning">此开关只在当前进程内有效；服务重启后自动恢复现有策略。</p>
         </div>
+
+        <div class="card model-list-card">
+          <div class="routing-policy-head">
+            <h3>模型列表</h3>
+            <button id="refreshModelsButton" class="btn" type="button">刷新模型列表</button>
+          </div>
+          <p class="note"><code class="mono">/v1/models</code> 由账号从上游读取，按账号池缓存一小时。新模型发布后点此立即重新读取，无需重启。</p>
+          <div id="modelListStatus" class="model-list" role="status"></div>
+        </div>
       </div>
     </section>
   </div>

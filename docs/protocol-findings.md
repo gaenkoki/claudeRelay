@@ -178,6 +178,26 @@ the count-tokens schema rejects it, and metadata does not contribute prompt toke
   An Enterprise account was observed in the desktop client on 2026-08-04 while the relay reported an
   empty plan, which is what prompted the passthrough.
 
+## Model discovery
+
+- **Binary inspection:** Claude Code 2.1.295 gateway model discovery runs only when
+  `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY` is set, the provider is first-party, and
+  `ANTHROPIC_BASE_URL` is not an Anthropic host. It sends `GET /v1/models?limit=1000` with
+  `Authorization: Bearer` (`ANTHROPIC_AUTH_TOKEN` or `apiKeyHelper`) and/or `x-api-key`, plus
+  `anthropic-version` and the CLI User-Agent, but no `X-App` or session header. The default timeout
+  is 3000 ms (`CLAUDE_CODE_GATEWAY_MODEL_DISCOVERY_TIMEOUT_MS`).
+- **Binary inspection:** the response must contain `data` entries with a string `id` and optional
+  `display_name` and `description`. IDs not matching `/(claude|anthropic)/i` are dropped, and the
+  result is cached in `~/.claude/cache/gateway-models.json` together with the base URL.
+- **Binary inspection:** subscription sessions receive extra picker entries from the private
+  `GET /api/claude_cli/bootstrap` (`additional_model_options`). A capability fetch that calls the
+  Models API with `anthropic-beta: oauth-2025-04-20` exists in 2.1.295 but is switched off.
+- **Acceptance test 2026-10-12:** a Claude subscription OAuth access token with
+  `anthropic-beta: oauth-2025-04-20` read the public `GET /v1/models?limit=1000` in one page:
+  14 models from `claude-haiku-5-5` (newest) to `claude-sonnet-4-5-20250929`, each with
+  `capabilities`, `lifecycle`, `line`, `max_input_tokens`, and `max_tokens`. No Mythos model was
+  listed. Claude Code 2.1.295 with discovery enabled cached all 14 through the relay.
+
 ## Deferred questions
 
 - Recheck the model matrix after client/model releases and distinguish validation responses from
