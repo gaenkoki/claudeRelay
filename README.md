@@ -132,11 +132,13 @@ official ingress does not require a Claude Code-shaped request for them, and the
 slot and create no request record.
 
 The relay reads Anthropic's own `GET /v1/models` with the first healthy account the key's policy may
-use, through that account's exit, and shares the result for one hour per policy. A newly released
+use, through that account's exit, with `anthropic-beta: oauth-2025-04-20`, and shares the result
+for one hour per policy. A newly released
 model therefore appears without a new build. Without any list yet, a request waits up to two seconds
 for that read; an expired list is answered at once while one shared refresh runs. A failed read is
-not repeated for five minutes. Until the first read succeeds, a built-in list of current and legacy
-models is served. `X-Claude-Relay-Models-Source` reports `upstream`, `stale`, or `builtin`.
+not repeated for five minutes. If no upstream list is available after the wait, the endpoint returns
+`503 api_error`; no built-in model list is served. `X-Claude-Relay-Models-Source` reports
+`upstream`, `stale`, or `unavailable`. Upstream error details remain in logs and the admin status.
 
 The console's connection panel shows each policy's list as an expandable table of model IDs,
 names, release dates, and token limits. Opening it calls `GET /admin/v1/models`, which reports

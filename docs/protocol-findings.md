@@ -197,6 +197,11 @@ the count-tokens schema rejects it, and metadata does not contribute prompt toke
   14 models from `claude-haiku-5-5` (newest) to `claude-sonnet-4-5-20250929`, each with
   `capabilities`, `lifecycle`, `line`, `max_input_tokens`, and `max_tokens`. No Mythos model was
   listed. Claude Code 2.1.295 with discovery enabled cached all 14 through the relay.
+- **Deployment verification 2026-10-12:** a healthy subscription account on RackNerd read
+  `https://api.anthropic.com/v1/models?limit=1000` through its configured account proxy. Both
+  requests, with and without `anthropic-beta: oauth-2025-04-20`, returned HTTP 200 and the same
+  14 models with `has_more: false`. The relay retains the OAuth beta header consistently.
+  This verifies catalogue access only, not inference entitlement for each listed model.
 
 ## Deferred questions
 

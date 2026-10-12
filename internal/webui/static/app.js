@@ -1363,9 +1363,10 @@ async function toggleA6APIProbes(element) {
 
 function describeModelListStatus(status) {
   const scope = status.access === "all" ? "Official 入口" : "中转与实验入口";
-  const source = { upstream: "上游", stale: "上游（已过期）", builtin: "内置列表" }[status.source] || status.source;
+  const source = { upstream: "上游", stale: "上游（已过期）", unavailable: "尚无上游列表" }[status.source] || status.source;
   const fetched = status.fetched_at ? `，${new Date(status.fetched_at).toLocaleTimeString()} 读取` : "";
   const failure = status.error ? `；本次读取失败：${status.error}` : status.refreshing ? "；仍在读取" : "";
+  if (status.source === "unavailable") return `${scope}：${source}${failure}`;
   return `${scope}：${status.models} 个模型，来自${source}${fetched}${failure}`;
 }
 
@@ -1400,7 +1401,7 @@ function modelListTable(items) {
     const id = document.createElement("code");
     id.textContent = item.id;
     const lifecycle = MODEL_LIFECYCLE_LABELS[item.lifecycle];
-    // The built-in list carries the epoch, the Models API's value for an unknown release date.
+    // The Models API uses the epoch when the release date is unknown.
     const released = item.created_at && !item.created_at.startsWith("1970-") ? item.created_at.slice(0, 10) : "—";
     const row = document.createElement("tr");
     row.append(

@@ -8,12 +8,15 @@ Claude Code fills its model picker from a gateway's `/v1/models` when gateway mo
 enabled, and other Anthropic clients list models the same way. The relay answers from Anthropic's
 Models API rather than a maintained list, so new models appear without a build. The read uses the
 first healthy accounts the caller's policy may select, keeping the pool fence and each account's
-exit, and one result is shared per policy for an hour.
+exit, and one result is shared per policy for an hour. Model reads always send
+`anthropic-beta: oauth-2025-04-20` with the subscription bearer token.
 
 It is not model traffic. Discovery sends no `X-App` or session header, so the official Claude Code
-shape check does not apply; no admission slot, session binding, or request record is involved. A
-built-in list covers the time before the first successful read and an upstream that refuses it. Neither
-list restricts Messages: requests for other models are forwarded unchanged.
+shape check does not apply; no admission slot, session binding, or request record is involved.
+Without a successful upstream list, discovery returns `503 api_error` after at most two seconds
+of waiting; the admin view shows an empty unavailable catalogue with any read error. An expired
+upstream list remains available with source `stale` while refreshing, and failed refreshes are logged.
+The list does not restrict Messages: requests for other models are forwarded unchanged.
 
 There is no background polling. Reads happen only when a caller finds the list missing or expired,
 or when an operator forces one from the console after a release; the forced read skips the cache age

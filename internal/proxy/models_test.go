@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -130,7 +131,7 @@ func TestModelListReadsUpstreamPagesOncePerTTL(t *testing.T) {
 	}
 }
 
-func TestModelListFallsBackToBuiltinListWithoutExposingUpstreamError(t *testing.T) {
+func TestModelEndpointsFailWithoutUpstreamList(t *testing.T) {
 	t.Parallel()
 	var reads atomic.Int32
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -139,18 +140,13 @@ func TestModelListFallsBackToBuiltinListWithoutExposingUpstreamError(t *testing.
 	}))
 	defer upstream.Close()
 	server := newTestServer(t, upstream.URL, 4096)
-	want := make([]string, 0, len(builtinModels))
-	for _, model := range builtinModels {
-		want = append(want, model.ID)
-	}
-	for range 2 {
-		recorder := modelsRequest(t, server, "downstream-key", "/v1/models")
-		payload := decodeModelList(t, recorder)
-		if source := recorder.Header().Get(modelsSourceHeader); source != modelsSourceBuiltin {
-			t.Fatalf("source = %q", source)
+	for _, path := range []string{"/v1/models", "/v1/models/claude-opus-5-5"} {
+		recorder := modelsRequest(t, server, "downstream-key", path)
+		if recorder.Code != http.StatusServiceUnavailable || !strings.Contains(recorder.Body.String(), "upstream model list is unavailable") {
+			t.Fatalf("%s: status = %d, body = %s", path, recorder.Code, recorder.Body.String())
 		}
-		if got := payload.ids(); !slices.Equal(got, want) {
-			t.Fatalf("model ids = %#v", got)
+		if source := recorder.Header().Get(modelsSourceHeader); source != modelsSourceUnavailable {
+			t.Fatalf("source = %q", source)
 		}
 		if body := recorder.Body.String(); strings.Contains(body, "OAuth authentication") || strings.Contains(body, "default") {
 			t.Fatalf("model list exposed upstream detail: %s", body)
@@ -158,6 +154,37 @@ func TestModelListFallsBackToBuiltinListWithoutExposingUpstreamError(t *testing.
 	}
 	if got := reads.Load(); got != 1 {
 		t.Fatalf("upstream reads = %d, want the failed read held back", got)
+	}
+}
+
+func TestModelListInitialTimeoutReturnsErrorThenUsesCompletedRead(t *testing.T) {
+	t.Parallel()
+	server := newTestServer(t, "http://127.0.0.1:1", 4096)
+	release := make(chan struct{})
+	released := false
+	defer func() {
+		if !released {
+			close(release)
+		}
+	}()
+	server.models = newModelCatalog(func(ctx context.Context, _ store.AccountAccess) ([]catalogModel, error) {
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		return []catalogModel{{ID: "claude-loaded", Raw: json.RawMessage(`{"id":"claude-loaded","type":"model"}`)}}, nil
+	})
+	recorder := modelsRequest(t, server, "downstream-key", "/v1/models")
+	if recorder.Code != http.StatusServiceUnavailable || recorder.Header().Get(modelsSourceHeader) != modelsSourceUnavailable {
+		t.Fatalf("initial timeout status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	close(release)
+	released = true
+	waitForModelRefresh(t, server.models, store.AccountAccessCompatibleOnly)
+	payload := decodeModelList(t, modelsRequest(t, server, "downstream-key", "/v1/models"))
+	if !slices.Equal(payload.ids(), []string{"claude-loaded"}) {
+		t.Fatalf("completed read models = %#v", payload.ids())
 	}
 }
 
@@ -266,8 +293,10 @@ func TestModelListKeepsAccountFenceWithoutClaudeCodeShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	compatible := modelsRequest(t, server, "downstream-key", "/v1/models")
-	decodeModelList(t, compatible)
-	if source := compatible.Header().Get(modelsSourceHeader); source != modelsSourceBuiltin || reads.Load() != 0 {
+	if compatible.Code != http.StatusServiceUnavailable {
+		t.Fatalf("compatible status = %d, body = %s", compatible.Code, compatible.Body.String())
+	}
+	if source := compatible.Header().Get(modelsSourceHeader); source != modelsSourceUnavailable || reads.Load() != 0 {
 		t.Fatalf("compatible source = %q after %d upstream reads; the official-pool account was used", source, reads.Load())
 	}
 	// Official traffic must be Claude Code-shaped, but discovery sends no X-App or session header.
@@ -347,10 +376,11 @@ func TestAdminModelRefreshIgnoresFailureDelayAndReportsError(t *testing.T) {
 	}))
 	defer upstream.Close()
 	server := newTestServer(t, upstream.URL, 4096)
-	decodeModelList(t, modelsRequest(t, server, "downstream-key", "/v1/models"))
-
+	if recorder := modelsRequest(t, server, "downstream-key", "/v1/models"); recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("initial status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
 	for _, status := range adminRefreshModels(t, server) {
-		if status.Source != modelsSourceBuiltin || status.Models != len(builtinModels) ||
+		if status.Source != modelsSourceUnavailable || status.Models != 0 || len(status.Items) != 0 ||
 			!strings.Contains(status.Error, `account "default"`) || !strings.Contains(status.Error, "OAuth authentication is currently not supported.") {
 			t.Fatalf("failed refresh status = %#v", status)
 		}
@@ -416,7 +446,7 @@ func TestAdminModelViewReportsListsWithoutReadingUpstream(t *testing.T) {
 	}
 
 	for _, status := range view() {
-		if status.Source != modelsSourceBuiltin || len(status.Items) != len(builtinModels) || status.Items[0].ID != builtinModels[0].ID {
+		if status.Source != modelsSourceUnavailable || status.Models != 0 || len(status.Items) != 0 {
 			t.Fatalf("initial status = %#v", status)
 		}
 	}
@@ -427,7 +457,7 @@ func TestAdminModelViewReportsListsWithoutReadingUpstream(t *testing.T) {
 	if statuses[0].Source != modelsSourceUpstream || len(statuses[0].Items) != 1 || statuses[0].Items[0] != want {
 		t.Fatalf("compatible status = %#v", statuses[0])
 	}
-	if statuses[1].Source != modelsSourceBuiltin {
+	if statuses[1].Source != modelsSourceUnavailable {
 		t.Fatalf("unrequested official status = %#v", statuses[1])
 	}
 	if got := reads.Load(); got != 1 {

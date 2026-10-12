@@ -34,9 +34,9 @@ const (
 )
 
 const (
-	modelsSourceUpstream = "upstream"
-	modelsSourceStale    = "stale"
-	modelsSourceBuiltin  = "builtin"
+	modelsSourceUpstream    = "upstream"
+	modelsSourceStale       = "stale"
+	modelsSourceUnavailable = "unavailable"
 )
 
 var errNoModelAccount = errors.New("no healthy account may read the model list")
@@ -79,18 +79,19 @@ func newModelCatalog(fetch func(context.Context, store.AccountAccess) ([]catalog
 
 // list returns the newest known list for a policy and where it came from. An
 // expired list is answered at once while one shared refresh runs; without any
-// list the caller waits briefly for that refresh before using the built-in list.
-func (c *modelCatalog) list(ctx context.Context, access store.AccountAccess) ([]catalogModel, string) {
+// list the caller waits briefly for that refresh and receives an error if no
+// upstream list is available.
+func (c *modelCatalog) list(ctx context.Context, access store.AccountAccess) ([]catalogModel, string, error) {
 	c.mu.Lock()
 	entry, cached := c.entries[access]
 	if cached && c.now().Sub(entry.fetchedAt) < modelCatalogTTL {
 		c.mu.Unlock()
-		return entry.models, modelsSourceUpstream
+		return entry.models, modelsSourceUpstream, nil
 	}
 	done := c.refreshLocked(access)
 	c.mu.Unlock()
 	if cached {
-		return entry.models, modelsSourceStale
+		return entry.models, modelsSourceStale, nil
 	}
 	if done != nil {
 		timer := time.NewTimer(modelCatalogWait)
@@ -98,16 +99,19 @@ func (c *modelCatalog) list(ctx context.Context, access store.AccountAccess) ([]
 		select {
 		case <-done:
 		case <-timer.C:
+			return nil, modelsSourceUnavailable, fmt.Errorf("model list read did not finish within %s", modelCatalogWait)
 		case <-ctx.Done():
+			return nil, modelsSourceUnavailable, ctx.Err()
 		}
 	}
 	c.mu.Lock()
 	entry, cached = c.entries[access]
+	err := c.lastErr[access]
 	c.mu.Unlock()
 	if cached {
-		return entry.models, modelsSourceUpstream
+		return entry.models, modelsSourceUpstream, nil
 	}
-	return builtinModels, modelsSourceBuiltin
+	return nil, modelsSourceUnavailable, err
 }
 
 // refreshLocked starts the policy's refresh unless one is running or the last
@@ -180,8 +184,8 @@ type modelListItem struct {
 func (c *modelCatalog) status(access store.AccountAccess) modelCatalogStatus {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	status := modelCatalogStatus{Access: access, Source: modelsSourceBuiltin}
-	models := builtinModels
+	status := modelCatalogStatus{Access: access, Source: modelsSourceUnavailable}
+	var models []catalogModel
 	if entry, cached := c.entries[access]; cached {
 		status.Source = modelsSourceUpstream
 		if c.now().Sub(entry.fetchedAt) >= modelCatalogTTL {
@@ -335,7 +339,11 @@ func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request_error", "after_id and before_id cannot be combined")
 		return
 	}
-	models, source := s.models.list(r.Context(), requestIngress(r.Context()).AccountAccess)
+	models, source, err := s.models.list(r.Context(), requestIngress(r.Context()).AccountAccess)
+	if err != nil {
+		s.modelListError(w, r, err)
+		return
+	}
 	page, hasMore, err := pageModels(models, limit, afterID, beforeID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
@@ -355,7 +363,11 @@ func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getModel(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("model_id"))
-	models, source := s.models.list(r.Context(), requestIngress(r.Context()).AccountAccess)
+	models, source, err := s.models.list(r.Context(), requestIngress(r.Context()).AccountAccess)
+	if err != nil {
+		s.modelListError(w, r, err)
+		return
+	}
 	w.Header().Set(modelsSourceHeader, source)
 	index := modelIndex(models, id)
 	if index < 0 {
@@ -363,6 +375,14 @@ func (s *Server) getModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, models[index].Raw)
+}
+
+func (s *Server) modelListError(w http.ResponseWriter, r *http.Request, err error) {
+	// Upstream failures and the initial discovery timeout must not produce a
+	// successful catalogue. Keep account/upstream details in operator diagnostics.
+	slog.Warn("model list unavailable", "access", requestIngress(r.Context()).AccountAccess, "error", err)
+	w.Header().Set(modelsSourceHeader, modelsSourceUnavailable)
+	writeError(w, http.StatusServiceUnavailable, "api_error", "upstream model list is unavailable")
 }
 
 // modelPolicies lists the account policies a configured model key can reach.
@@ -446,38 +466,4 @@ func modelIndex(models []catalogModel, id string) int {
 		}
 	}
 	return -1
-}
-
-// builtinModels is served for a policy until its first upstream read succeeds.
-// It follows Anthropic's Models overview page of 2026-10-12, current models first
-// and then legacy models that remain callable; update it together with that page.
-// The epoch created_at is the Models API's value for an unknown release date.
-var builtinModels = buildModelList([]struct{ id, name string }{
-	{"claude-fable-5-1", "Claude Fable 5.1"},
-	{"claude-opus-5-5", "Claude Opus 5.5"},
-	{"claude-sonnet-5-5", "Claude Sonnet 5.5"},
-	{"claude-haiku-5-5", "Claude Haiku 5.5"},
-	{"claude-fable-5", "Claude Fable 5"},
-	{"claude-opus-5", "Claude Opus 5"},
-	{"claude-opus-4-8", "Claude Opus 4.8"},
-	{"claude-opus-4-7", "Claude Opus 4.7"},
-	{"claude-opus-4-6", "Claude Opus 4.6"},
-	{"claude-opus-4-5-20251101", "Claude Opus 4.5"},
-	{"claude-sonnet-5", "Claude Sonnet 5"},
-	{"claude-sonnet-4-6", "Claude Sonnet 4.6"},
-	{"claude-haiku-4-5-20251001", "Claude Haiku 4.5"},
-})
-
-func buildModelList(entries []struct{ id, name string }) []catalogModel {
-	models := make([]catalogModel, 0, len(entries))
-	for _, entry := range entries {
-		raw, _ := json.Marshal(struct {
-			Type        string `json:"type"`
-			ID          string `json:"id"`
-			DisplayName string `json:"display_name"`
-			CreatedAt   string `json:"created_at"`
-		}{"model", entry.id, entry.name, "1970-01-01T00:00:00Z"})
-		models = append(models, catalogModel{ID: entry.id, Raw: raw})
-	}
-	return models
 }
