@@ -648,11 +648,16 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 .official-version-card .form-grid label, .refusal-billing-card .form-grid label { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
 .refusal-billing-card .check-row { margin-bottom: 13px; }
 .official-version-card input { width: 100%; }
-.routing-policy-card { grid-column: 1 / -1; }
+.routing-policy-card, .model-list-card { grid-column: 1 / -1; }
 .routing-policy-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .routing-policy-head > div { display: flex; align-items: center; gap: 9px; }
 .routing-policy-head h3 { margin: 0; }
 .routing-policy-card .note { margin: 13px 0 6px; }
+.model-list { margin-top: 10px; }
+.model-list-details summary { padding: 9px 2px; }
+.model-list-details summary.model-list-error { color: var(--danger); }
+.model-list-details .grid { min-width: 560px; font-size: 12px; }
+.model-list-details .grid th, .model-list-details .grid td { padding: 8px 10px; }
 .routing-policy-warning { margin: 0; color: var(--warn); font-size: 11px; }
 
 /* ---------- dialogs ---------- */

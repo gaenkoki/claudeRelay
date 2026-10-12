@@ -2,6 +2,23 @@
 
 This file records decisions that shape the service beyond the dated Anthropic protocol findings.
 
+## 2026-10-12: the model list is a cached upstream read
+
+Claude Code fills its model picker from a gateway's `/v1/models` when gateway model discovery is
+enabled, and other Anthropic clients list models the same way. The relay answers from Anthropic's
+Models API rather than a maintained list, so new models appear without a build. The read uses the
+first healthy accounts the caller's policy may select, keeping the pool fence and each account's
+exit, and one result is shared per policy for an hour.
+
+It is not model traffic. Discovery sends no `X-App` or session header, so the official Claude Code
+shape check does not apply; no admission slot, session binding, or request record is involved. A
+built-in list covers the time before the first successful read and an upstream that refuses it. Neither
+list restricts Messages: requests for other models are forwarded unchanged.
+
+There is no background polling. Reads happen only when a caller finds the list missing or expired,
+or when an operator forces one from the console after a release; the forced read skips the cache age
+and failure delay but uses the same accounts and exits.
+
 ## 2026-09-23: compatibility policies are separate from account placement
 
 The relay exposes three model ingress policies: `compatible` preserves third-party request

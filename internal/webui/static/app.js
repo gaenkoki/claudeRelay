@@ -1361,6 +1361,86 @@ async function toggleA6APIProbes(element) {
   }
 }
 
+function describeModelListStatus(status) {
+  const scope = status.access === "all" ? "Official 入口" : "中转与实验入口";
+  const source = { upstream: "上游", stale: "上游（已过期）", builtin: "内置列表" }[status.source] || status.source;
+  const fetched = status.fetched_at ? `，${new Date(status.fetched_at).toLocaleTimeString()} 读取` : "";
+  const failure = status.error ? `；本次读取失败：${status.error}` : status.refreshing ? "；仍在读取" : "";
+  return `${scope}：${status.models} 个模型，来自${source}${fetched}${failure}`;
+}
+
+const MODEL_LIFECYCLE_LABELS = { deprecated: "已弃用", retired: "已退役" };
+
+function renderModelList(policies) {
+  const container = $("modelListStatus");
+  const expanded = new Set(Array.from(container.querySelectorAll("details[open]"), (details) => details.dataset.access));
+  container.replaceChildren(...policies.map((status) => {
+    const details = document.createElement("details");
+    details.className = "five-hour-window-details model-list-details";
+    details.dataset.access = status.access;
+    details.open = expanded.has(status.access);
+    const summary = document.createElement("summary");
+    summary.textContent = describeModelListStatus(status);
+    if (status.error) summary.className = "model-list-error";
+    details.append(summary, modelListTable(status.items || []));
+    return details;
+  }));
+}
+
+function modelListTable(items) {
+  const head = document.createElement("tr");
+  for (const [label, numeric] of [["模型 ID", false], ["名称", false], ["发布日期", false], ["上下文", true], ["最大输出", true]]) {
+    const th = document.createElement("th");
+    th.textContent = label;
+    if (numeric) th.className = "col-number";
+    head.appendChild(th);
+  }
+  const body = document.createElement("tbody");
+  for (const item of items) {
+    const id = document.createElement("code");
+    id.textContent = item.id;
+    const lifecycle = MODEL_LIFECYCLE_LABELS[item.lifecycle];
+    // The built-in list carries the epoch, the Models API's value for an unknown release date.
+    const released = item.created_at && !item.created_at.startsWith("1970-") ? item.created_at.slice(0, 10) : "—";
+    const row = document.createElement("tr");
+    row.append(
+      cell(id),
+      cell(stack(strong(item.display_name || "—"), lifecycle ? small(lifecycle) : null)),
+      cell(document.createTextNode(released)),
+      numberCell(item.max_input_tokens ? formatTokens(item.max_input_tokens) : "—"),
+      numberCell(item.max_tokens ? formatTokens(item.max_tokens) : "—"),
+    );
+    body.appendChild(row);
+  }
+  const table = document.createElement("table");
+  table.className = "grid";
+  table.createTHead().appendChild(head);
+  table.appendChild(body);
+  const wrap = document.createElement("div");
+  wrap.className = "table-wrap";
+  wrap.appendChild(table);
+  return wrap;
+}
+
+async function loadModelList() {
+  const result = await api("/admin/v1/models");
+  renderModelList(result.policies);
+}
+
+async function refreshModelList(element) {
+  setBusy(element, true, "刷新中");
+  try {
+    const result = await api("/admin/v1/models/refresh", { method: "POST" });
+    renderModelList(result.policies);
+    const failed = result.policies.some((status) => status.error);
+    showToast(failed ? "模型列表读取失败，详情见卡片" : "模型列表已刷新", failed);
+  } catch (error) {
+    showToast(error.message, true);
+  } finally {
+    setBusy(element, false);
+  }
+}
+
 async function saveRefusalBilling(element) {
   const inputs = $("refusalBillingForm").querySelectorAll("input");
   const multipliers = Object.fromEntries(
@@ -1877,6 +1957,7 @@ function selectPanel(name) {
   }
   if (name === "requests") refreshAll({ includeRequests: true });
   if (name === "usage") loadUsage().catch((error) => showToast(error.message, true));
+  if (name === "connect") loadModelList().catch((error) => showToast(error.message, true));
 }
 
 /* ---------------- theme ---------------- */
@@ -2271,6 +2352,7 @@ $("refusalBillingForm").addEventListener("submit", (event) => {
   saveRefusalBilling($("saveRefusalBillingButton"));
 });
 $("a6APIProbesSwitch").addEventListener("click", (event) => toggleA6APIProbes(event.currentTarget));
+$("refreshModelsButton").addEventListener("click", (event) => refreshModelList(event.currentTarget));
 $("copyRelayKey").addEventListener("click", () => copyText(state.overview?.relay_api_key, "中转密钥已复制"));
 $("copyExperimentalKey").addEventListener("click", () => copyText(state.overview?.experimental_api_key, "实验入口密钥已复制"));
 $("copyOfficialKey").addEventListener("click", () => copyText(state.overview?.official_api_key, "Official 入口密钥已复制"));
