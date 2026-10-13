@@ -478,6 +478,7 @@ func TestOfficialIngressA6APIProbeException(t *testing.T) {
 		name       string
 		enabled    bool
 		probeID    string
+		selfTest   string
 		key        string
 		response   int
 		wantStatus int
@@ -485,6 +486,13 @@ func TestOfficialIngressA6APIProbeException(t *testing.T) {
 		{name: "disabled by default", probeID: "probe-1", key: "official-downstream-key", wantStatus: http.StatusForbidden},
 		{name: "missing marker", enabled: true, key: "official-downstream-key", wantStatus: http.StatusForbidden},
 		{name: "blank marker", enabled: true, probeID: " \t", key: "official-downstream-key", wantStatus: http.StatusForbidden},
+		{name: "self-test disabled", selfTest: "pelican", key: "official-downstream-key", wantStatus: http.StatusForbidden},
+		{name: "blank self-test", enabled: true, selfTest: " \t", key: "official-downstream-key", wantStatus: http.StatusForbidden},
+		{name: "unknown self-test", enabled: true, selfTest: "other", key: "official-downstream-key", wantStatus: http.StatusForbidden},
+		{name: "self-test missing key", enabled: true, selfTest: "pelican", wantStatus: http.StatusUnauthorized},
+		{name: "self-test invalid key", enabled: true, selfTest: "pelican", key: "wrong-key", wantStatus: http.StatusUnauthorized},
+		{name: "pelican self-test reaches upstream", enabled: true, selfTest: "pelican", key: "official-downstream-key", response: http.StatusOK, wantStatus: http.StatusOK},
+		{name: "self-test upstream rejection", enabled: true, selfTest: "pelican", key: "official-downstream-key", response: http.StatusForbidden, wantStatus: http.StatusForbidden},
 		{name: "missing key", enabled: true, probeID: "probe-1", wantStatus: http.StatusUnauthorized},
 		{name: "invalid key", enabled: true, probeID: "probe-1", key: "wrong-key", wantStatus: http.StatusUnauthorized},
 		{name: "admin key is not an ingress key", enabled: true, probeID: "probe-1", key: "admin-key", wantStatus: http.StatusUnauthorized},
@@ -527,6 +535,7 @@ func TestOfficialIngressA6APIProbeException(t *testing.T) {
 			request := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
 			request.Header.Set("x-api-key", tc.key)
 			request.Header.Set("X-A6API-Probe-Id", tc.probeID)
+			request.Header.Set("X-A6API-Self-Test-Kind", tc.selfTest)
 			request.Header.Set("anthropic-version", "2023-06-01")
 			recorder := httptest.NewRecorder()
 			server.routes().ServeHTTP(recorder, request)

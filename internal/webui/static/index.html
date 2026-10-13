@@ -358,7 +358,7 @@
             <h3>A6API 探测放行</h3>
             <button id="a6APIProbesSwitch" class="btn" type="button" role="switch" aria-checked="false" aria-label="A6API 探测放行" aria-describedby="a6APIProbesDescription">已关闭</button>
           </div>
-          <p id="a6APIProbesDescription" class="note">开启后，携带非空 X-A6API-Probe-Id 的 Official 请求跳过 CC 格式和版本检查，仍需有效密钥并真实调用上游。持有密钥的调用方均可添加此标记。</p>
+          <p id="a6APIProbesDescription" class="note">开启后，携带非空 X-A6API-Probe-Id 或 X-A6API-Self-Test-Kind: pelican 的 Official 请求跳过 CC 格式和版本检查，仍需有效密钥并真实调用上游。持有密钥的调用方均可添加此标记。</p>
           <p class="note">默认关闭，切换立即生效，重启后保留。</p>
         </div>
 

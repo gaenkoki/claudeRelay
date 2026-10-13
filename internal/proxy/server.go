@@ -383,11 +383,12 @@ func (s *Server) forward(w http.ResponseWriter, incoming *http.Request) {
 		AnthropicBeta:      route.Client.Evidence.AnthropicBeta,
 		AnthropicVersion:   route.Client.Evidence.AnthropicVersion,
 	}
-	// A6API sends non-CC health probes. This temporary, opt-in exception only
+	// A6API sends non-CC health probes and pelican self-tests. This temporary, opt-in exception only
 	// applies after official-key authentication; the caller-controlled header
 	// is a marker, not proof of platform identity. Preserve the classification.
 	allowA6APIProbe := ingress.RequireClaudeCode && s.allowA6APIProbes.Load() &&
-		strings.TrimSpace(incoming.Header.Get("X-A6API-Probe-Id")) != ""
+		(strings.TrimSpace(incoming.Header.Get("X-A6API-Probe-Id")) != "" ||
+			strings.TrimSpace(incoming.Header.Get("X-A6API-Self-Test-Kind")) == "pelican")
 	if allowA6APIProbe {
 		slog.Warn("temporary A6API probe admission bypasses Claude Code checks",
 			"request_id", requestID, "path", incoming.URL.Path, "ingress", ingress.Name,
