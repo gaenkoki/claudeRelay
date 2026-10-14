@@ -332,6 +332,26 @@ func (s *Server) forward(w http.ResponseWriter, incoming *http.Request) {
 		fail(http.StatusNotFound, "not_found_error", "unsupported endpoint")
 		return
 	}
+	ingress := requestIngress(incoming.Context())
+	event.Ingress = ingress.Name
+	// A6API sends non-CC health probes and pelican self-tests. This temporary, opt-in exception only
+	// applies after official-key authentication; the caller-controlled header
+	// is a marker, not proof of platform identity. Preserve the classification.
+	allowA6APIProbe := ingress.RequireClaudeCode && s.allowA6APIProbes.Load() &&
+		(strings.TrimSpace(incoming.Header.Get("X-A6API-Probe-Id")) != "" ||
+			strings.TrimSpace(incoming.Header.Get("X-A6API-Self-Test-Kind")) == "pelican")
+	if ingress.RequireClaudeCode && !allowA6APIProbe {
+		// Requests without complete Claude Code headers can never be admitted,
+		// so reject them before reading or parsing the body.
+		if client := classifyClientHeaders(incoming.Header); !client.Evidence.hasCompleteHeaders() {
+			recordClientObservation(&event, client)
+			slog.Warn("rejected non-Claude-Code request on official ingress", "request_id", requestID, "path", incoming.URL.Path,
+				"ingress", ingress.Name, "client_class", client.Class, "client_kind", client.Kind,
+				"content_length", incoming.ContentLength, "body_read", false)
+			fail(http.StatusForbidden, "permission_error", "official ingress requires a Claude Code-shaped request")
+			return
+		}
+	}
 	limited := http.MaxBytesReader(w, incoming.Body, s.cfg.MaxRequestBytes)
 	body, err := io.ReadAll(limited)
 	if closeErr := limited.Close(); closeErr != nil {
@@ -347,8 +367,6 @@ func (s *Server) forward(w http.ResponseWriter, incoming *http.Request) {
 		return
 	}
 	includeMetadata := incoming.URL.Path == "/v1/messages"
-	ingress := requestIngress(incoming.Context())
-	event.Ingress = ingress.Name
 	normalizedToolNames := 0
 	var toolNames toolNameMapping
 	if ingress.NormalizeToolNames {
@@ -368,27 +386,7 @@ func (s *Server) forward(w http.ResponseWriter, incoming *http.Request) {
 		return
 	}
 	event.Model = route.Model
-	event.ClientClass = route.Client.Class
-	event.ClientKind = route.Client.Kind
-	event.ClassificationVersion = route.Client.Version
-	event.Client = &metrics.ClientEvidence{
-		BillingBlock:       route.Client.Evidence.BillingBlock,
-		CCVersion:          route.Client.Evidence.CCVersion,
-		KnownEntrypoint:    route.Client.Evidence.KnownEntrypoint,
-		OfficialPrompt:     route.Client.Evidence.OfficialPrompt,
-		StructuredMetadata: route.Client.Evidence.StructuredMetadata,
-		ClaudeUserAgent:    route.Client.Evidence.ClaudeUserAgent,
-		ClaudeCodeSession:  route.Client.Evidence.ClaudeCodeSession,
-		XAppCLI:            route.Client.Evidence.XAppCLI,
-		AnthropicBeta:      route.Client.Evidence.AnthropicBeta,
-		AnthropicVersion:   route.Client.Evidence.AnthropicVersion,
-	}
-	// A6API sends non-CC health probes and pelican self-tests. This temporary, opt-in exception only
-	// applies after official-key authentication; the caller-controlled header
-	// is a marker, not proof of platform identity. Preserve the classification.
-	allowA6APIProbe := ingress.RequireClaudeCode && s.allowA6APIProbes.Load() &&
-		(strings.TrimSpace(incoming.Header.Get("X-A6API-Probe-Id")) != "" ||
-			strings.TrimSpace(incoming.Header.Get("X-A6API-Self-Test-Kind")) == "pelican")
+	recordClientObservation(&event, route.Client)
 	if allowA6APIProbe {
 		slog.Warn("temporary A6API probe admission bypasses Claude Code checks",
 			"request_id", requestID, "path", incoming.URL.Path, "ingress", ingress.Name,
@@ -686,6 +684,24 @@ func (s *Server) forward(w http.ResponseWriter, incoming *http.Request) {
 		}
 	}
 	slog.Info("request completed", "request_id", requestID, "path", incoming.URL.Path, "ingress", ingress.Name, "account", selected.Account.Alias, "selection", selected.Source, "status", response.StatusCode, "duration_ms", time.Since(started).Milliseconds())
+}
+
+func recordClientObservation(event *metrics.Event, client clientObservation) {
+	event.ClientClass = client.Class
+	event.ClientKind = client.Kind
+	event.ClassificationVersion = client.Version
+	event.Client = &metrics.ClientEvidence{
+		BillingBlock:       client.Evidence.BillingBlock,
+		CCVersion:          client.Evidence.CCVersion,
+		KnownEntrypoint:    client.Evidence.KnownEntrypoint,
+		OfficialPrompt:     client.Evidence.OfficialPrompt,
+		StructuredMetadata: client.Evidence.StructuredMetadata,
+		ClaudeUserAgent:    client.Evidence.ClaudeUserAgent,
+		ClaudeCodeSession:  client.Evidence.ClaudeCodeSession,
+		XAppCLI:            client.Evidence.XAppCLI,
+		AnthropicBeta:      client.Evidence.AnthropicBeta,
+		AnthropicVersion:   client.Evidence.AnthropicVersion,
+	}
 }
 
 // Capture a bounded preview while forwarding the original response unchanged.

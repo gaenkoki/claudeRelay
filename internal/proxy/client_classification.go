@@ -76,13 +76,7 @@ func classifyClient(root map[string]any, headers http.Header, path string) clien
 	evidence := billingEvidence(root["system"])
 	evidence.OfficialPrompt = hasClaudeCodeSystemPrompt(root["system"])
 	evidence.StructuredMetadata = hasStructuredMetadata(root["metadata"])
-	evidence.ClaudeUserAgent = claudeCodeUserAgentPattern.MatchString(strings.TrimSpace(headers.Get("User-Agent")))
-	evidence.ClaudeCodeSession = strings.TrimSpace(headers.Get(claudeCodeSessionHeader)) != ""
-	// Claude Code's /fork background sessions send cli-bg instead of cli.
-	xApp := strings.TrimSpace(headers.Get("X-App"))
-	evidence.XAppCLI = strings.EqualFold(xApp, "cli") || strings.EqualFold(xApp, "cli-bg")
-	evidence.AnthropicBeta = strings.TrimSpace(headers.Get("anthropic-beta")) != ""
-	evidence.AnthropicVersion = strings.TrimSpace(headers.Get("anthropic-version")) != ""
+	setHeaderEvidence(&evidence, headers)
 
 	observation := clientObservation{
 		Class:    clientClassCompatible,
@@ -90,9 +84,7 @@ func classifyClient(root map[string]any, headers http.Header, path string) clien
 		Version:  clientClassificationVersion,
 		Evidence: evidence,
 	}
-	completeHeaders := evidence.ClaudeUserAgent && evidence.ClaudeCodeSession && evidence.XAppCLI &&
-		evidence.AnthropicBeta && evidence.AnthropicVersion
-	if completeHeaders {
+	if evidence.hasCompleteHeaders() {
 		switch {
 		case path == "/v1/messages/count_tokens":
 			observation.Class = clientClassCCCandidate
@@ -119,6 +111,40 @@ func classifyClient(root map[string]any, headers http.Header, path string) clien
 		observation.Kind = clientKindAmbiguous
 	}
 	return observation
+}
+
+// classifyClientHeaders classifies a request from its headers alone. Every
+// cc_candidate path requires complete headers, so a request without them can
+// be rejected by the official ingress before its body is read.
+func classifyClientHeaders(headers http.Header) clientObservation {
+	var evidence clientEvidence
+	setHeaderEvidence(&evidence, headers)
+	observation := clientObservation{
+		Class:    clientClassCompatible,
+		Kind:     clientKindCompatible,
+		Version:  clientClassificationVersion,
+		Evidence: evidence,
+	}
+	if hasAnyClientEvidence(evidence) {
+		observation.Class = clientClassAmbiguous
+		observation.Kind = clientKindAmbiguous
+	}
+	return observation
+}
+
+func setHeaderEvidence(evidence *clientEvidence, headers http.Header) {
+	evidence.ClaudeUserAgent = claudeCodeUserAgentPattern.MatchString(strings.TrimSpace(headers.Get("User-Agent")))
+	evidence.ClaudeCodeSession = strings.TrimSpace(headers.Get(claudeCodeSessionHeader)) != ""
+	// Claude Code's /fork background sessions send cli-bg instead of cli.
+	xApp := strings.TrimSpace(headers.Get("X-App"))
+	evidence.XAppCLI = strings.EqualFold(xApp, "cli") || strings.EqualFold(xApp, "cli-bg")
+	evidence.AnthropicBeta = strings.TrimSpace(headers.Get("anthropic-beta")) != ""
+	evidence.AnthropicVersion = strings.TrimSpace(headers.Get("anthropic-version")) != ""
+}
+
+func (evidence clientEvidence) hasCompleteHeaders() bool {
+	return evidence.ClaudeUserAgent && evidence.ClaudeCodeSession && evidence.XAppCLI &&
+		evidence.AnthropicBeta && evidence.AnthropicVersion
 }
 
 func hasAnyClientEvidence(evidence clientEvidence) bool {

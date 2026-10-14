@@ -390,6 +390,64 @@ func TestOfficialIngressRejectsNonClaudeCodeShape(t *testing.T) {
 	}
 }
 
+type countingReader struct {
+	reader io.Reader
+	reads  int
+}
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	r.reads++
+	return r.reader.Read(p)
+}
+
+func TestOfficialIngressRejectsIncompleteHeadersBeforeReadingBody(t *testing.T) {
+	t.Parallel()
+	server := newTestServer(t, "https://upstream.invalid", 1024)
+	// The body is not JSON: only a header-level rejection can produce 403 here.
+	body := &countingReader{reader: strings.NewReader(`not json`)}
+	request := httptest.NewRequest(http.MethodPost, "/v1/messages", body)
+	request.Header.Set("x-api-key", "official-downstream-key")
+	setOfficialClaudeCodeTestHeaders(request)
+	request.Header.Del(claudeCodeSessionHeader)
+	recorder := httptest.NewRecorder()
+	server.routes().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403, body = %s", recorder.Code, recorder.Body.String())
+	}
+	if body.reads != 0 {
+		t.Fatalf("rejected request body was read %d times", body.reads)
+	}
+	records := server.metrics.Recent(1)
+	if len(records) != 1 || records[0].Ingress != ingressOfficial || records[0].ClientClass != clientClassAmbiguous ||
+		records[0].ClientEvidence == nil || !records[0].ClientEvidence.ClaudeUserAgent || records[0].ClientEvidence.ClaudeCodeSession {
+		t.Fatalf("rejected request record = %#v", records)
+	}
+}
+
+func TestBodyIsStillParsedWhenHeadersAllowAdmission(t *testing.T) {
+	t.Parallel()
+	server := newTestServer(t, "https://upstream.invalid", 1024)
+	for _, tc := range []struct {
+		name     string
+		key      string
+		ccHeader bool
+	}{
+		{name: "official with complete headers", key: "official-downstream-key", ccHeader: true},
+		{name: "compatible without headers", key: "downstream-key"},
+	} {
+		request := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`not json`))
+		request.Header.Set("x-api-key", tc.key)
+		if tc.ccHeader {
+			setOfficialClaudeCodeTestHeaders(request)
+		}
+		recorder := httptest.NewRecorder()
+		server.routes().ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("%s: status = %d, want 400, body = %s", tc.name, recorder.Code, recorder.Body.String())
+		}
+	}
+}
+
 func TestA6APIProbeSwitchAppliesImmediatelyAndPersists(t *testing.T) {
 	t.Parallel()
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
