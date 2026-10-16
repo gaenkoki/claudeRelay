@@ -54,6 +54,7 @@ type Server struct {
 	routingPolicy    *routingPolicyState
 	officialVersion  *officialVersionPolicy
 	refusalBilling   *refusalBillingPolicy
+	refusalGuard     *refusalGuard
 	allowA6APIProbes atomic.Bool
 	a6APIProbeMu     sync.Mutex // Serialize persistence and publication of admin changes.
 	// missingUsageWarningAt rate-limits diagnostics for successful Messages
@@ -89,6 +90,10 @@ func NewServer(cfg config.Config, database *store.Store) (*Server, error) {
 		return nil, err
 	}
 	refusalBilling, err := loadRefusalBillingPolicy(database)
+	if err != nil {
+		return nil, err
+	}
+	refusalGuard, err := loadRefusalGuard(database)
 	if err != nil {
 		return nil, err
 	}
@@ -133,6 +138,7 @@ func NewServer(cfg config.Config, database *store.Store) (*Server, error) {
 		routingPolicy:   routingPolicy,
 		officialVersion: officialVersion,
 		refusalBilling:  refusalBilling,
+		refusalGuard:    refusalGuard,
 		startedAt:       time.Now(),
 	}
 	server.tokens = &tokenManager{store: database, oauth: oauthClient, autoRefresh: cfg.AutoRefresh}
@@ -367,6 +373,14 @@ func (s *Server) forward(w http.ResponseWriter, incoming *http.Request) {
 		return
 	}
 	includeMetadata := incoming.URL.Path == "/v1/messages"
+	var refusalKeys refusalFingerprints
+	if includeMetadata {
+		refusalKeys, err = s.refusalGuard.fingerprints(body, incoming.Header, ingress.Name)
+		if err != nil {
+			fail(http.StatusBadRequest, "invalid_request_error", err.Error())
+			return
+		}
+	}
 	normalizedToolNames := 0
 	var toolNames toolNameMapping
 	if ingress.NormalizeToolNames {
@@ -402,6 +416,24 @@ func (s *Server) forward(w http.ResponseWriter, incoming *http.Request) {
 			slog.Warn("rejected Claude Code version on official ingress", "request_id", requestID,
 				"client_version", extractClaudeCodeUAVersion(incoming.Header.Get("User-Agent")), "error", err)
 			fail(http.StatusBadRequest, "invalid_request_error", err.Error())
+			return
+		}
+	}
+	if len(refusalKeys.lookup) > 0 {
+		now := time.Now()
+		cooldown, err := s.store.RefusalCooldown(incoming.Context(), refusalKeys.lookup, now)
+		if err != nil {
+			slog.Error("check refusal cooldown", "request_id", requestID, "error", err)
+			fail(http.StatusServiceUnavailable, "api_error", "failed to check refusal cooldown")
+			return
+		}
+		if cooldown.UntilAt > now.UnixMilli() {
+			event.Status = http.StatusForbidden
+			event.RelayAction = "refusal_cooldown"
+			event.RefusalCategory = cooldown.Category
+			event.Error = writeRefusalCooldown(w, cooldown, now)
+			slog.Warn("blocked refused conversation", "request_id", requestID, "ingress", ingress.Name,
+				"match", cooldown.Match, "category", cooldown.Category, "strikes", cooldown.Strikes, "until_at", cooldown.UntilAt)
 			return
 		}
 	}
@@ -648,11 +680,29 @@ func (s *Server) forward(w http.ResponseWriter, incoming *http.Request) {
 			"last_refresh_at", selected.Account.LastRefreshAt, "body_truncated", authPreview.truncated)
 	}
 	observedUsage, servedModel, refusal := observer.Result(copyErr, route.Model)
-	if incoming.URL.Path == "/v1/messages" && refusal.Seen {
+	if incoming.URL.Path == "/v1/messages" && successful && refusal.Seen {
 		event.Refusal = true
 		event.RefusalCategory = refusal.Category
 		refusalObservedAt := time.Now()
 		s.accounting.RecordRefusal(selected.Account.ID, refusalObservedAt, refusal)
+		if len(refusalKeys.record) > 0 {
+			// The client can disconnect after refusal bytes arrive. Persist with an
+			// independent, bounded context so cancellation cannot erase the cooldown.
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(incoming.Context()), 5*time.Second)
+			cooldown, err := s.store.RecordRefusalCooldown(ctx, refusalKeys.lookup, refusalKeys.record, refusal.Category, refusalObservedAt)
+			cancel()
+			if err != nil {
+				// The response is already sent and cannot be replaced with an error.
+				// Surface persistence failure in both logs and the request record.
+				event.Error = fmt.Sprintf("persist refusal cooldown: %v", err)
+				slog.Error("persist refusal cooldown", "request_id", requestID, "error", err)
+			} else {
+				slog.Warn("refusal conversation cooldown recorded", "request_id", requestID, "ingress", ingress.Name,
+					"category", cooldown.Category, "strikes", cooldown.Strikes, "until_at", cooldown.UntilAt)
+			}
+		} else {
+			slog.Warn("refusal has no conversation fingerprint", "request_id", requestID, "ingress", ingress.Name)
+		}
 		slog.Warn("upstream refused request", "request_id", requestID, "account", selected.Account.Alias,
 			"model", servedModel, "category", refusal.Category)
 	}

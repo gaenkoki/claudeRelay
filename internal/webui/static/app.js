@@ -1271,6 +1271,7 @@ function evidenceSummary(evidence) {
 }
 
 function relayActionLabel(action) {
+  if (action === "refusal_cooldown") return "拒绝会话冷却拦截";
   if (action === "passthrough") return "原样透传";
   if (action === "minimal_attribution") return "最小归因";
   if (action === "tool_name_normalization") return "工具名兼容";

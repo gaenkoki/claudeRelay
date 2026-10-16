@@ -86,7 +86,7 @@ type CooldownMatch struct {
 	Reason string
 }
 
-const schemaVersion = 15
+const schemaVersion = 16
 
 type Store struct {
 	db *sql.DB
@@ -230,6 +230,14 @@ func (s *Store) initialize(ctx context.Context) error {
 			PRIMARY KEY(bucket_start, account_id, category)
 		)`,
 		`CREATE INDEX IF NOT EXISTS refusal_hourly_account_time_idx ON refusal_hourly(account_id,bucket_start)`,
+		`CREATE TABLE IF NOT EXISTS refusal_cooldowns (
+			fingerprint TEXT PRIMARY KEY,
+			strikes INTEGER NOT NULL CHECK(strikes IN (1,2)),
+			until_at INTEGER NOT NULL,
+			retain_until INTEGER NOT NULL,
+			category TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS refusal_cooldowns_retention_idx ON refusal_cooldowns(retain_until)`,
 		`CREATE TABLE IF NOT EXISTS model_prices (
 			id INTEGER PRIMARY KEY,
 			model_pattern TEXT NOT NULL,
@@ -445,6 +453,14 @@ func (s *Store) initialize(ctx context.Context) error {
 		if _, err := s.db.ExecContext(ctx, "PRAGMA user_version=15"); err != nil {
 			return fmt.Errorf("record database schema version: %w", err)
 		}
+	}
+	if version < 16 {
+		if _, err := s.db.ExecContext(ctx, "PRAGMA user_version=16"); err != nil {
+			return fmt.Errorf("record database schema version: %w", err)
+		}
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM refusal_cooldowns WHERE retain_until<=?`, time.Now().UnixMilli()); err != nil {
+		return fmt.Errorf("prune refusal cooldowns during startup: %w", err)
 	}
 	refusalCutoff := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Hour).Unix()
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM refusal_hourly WHERE bucket_start<?`, refusalCutoff); err != nil {

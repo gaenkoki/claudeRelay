@@ -44,6 +44,49 @@ context price threshold, and a client disconnect before the final usage event ca
 adjustment from reaching downstream. The new-api and sub2api validation covers their usage and
 price calculations, not a complete production balance/refund transaction.
 
+## Refusal conversation cooldown
+
+Messages requests are protected independently of the billing-multiplier switch. When a successful
+upstream response explicitly reports `stop_reason: refusal` (including unknown categories), the
+relay records a ten-minute conversation cooldown. Another upstream refusal after the cooldown
+expires raises it to one hour. Escalation history expires 24 hours after the last cooldown began;
+the duration never exceeds one hour. Local blocked retries and refusals from requests already in
+flight do not extend the active cooldown or increase its strike count.
+
+The guard reads original session headers or Claude Code metadata before relay attribution/tool
+normalization. It also fingerprints the full refused message chain and checks prefixes on later
+requests, catching unchanged retries and continued histories even if the session ID changes.
+System/tool definitions contribute context but never create block keys on their own; shared early
+messages do not become blocked merely because a later message was refused. JSON key ordering,
+string versus text-block content, cache annotations, and standalone billing attribution blocks
+are normalized. Actual message text, tool inputs, and other content are preserved in the digest.
+Model changes do not bypass a matching fingerprint. Fingerprints are scoped to the authenticating
+ingress, which is not a verified downstream user or site identity.
+
+Blocked requests return HTTP **403**, before account selection or an upstream call:
+
+```json
+{"type":"error","error":{"type":"permission_error","code":"refusal_cooldown","message":"该会话已触发 refusal，暂时无法继续对话，请等待 9 分 58 秒后重试。","retry_after_seconds":598,"cooldown_until":"2026-10-16T04:10:00Z"}}
+```
+
+`Retry-After` also carries the rounded-up remaining seconds. The original refused response and
+existing usage adjustment are preserved. Local blocks generate no upstream usage or synthetic
+token charge; downstream gateways control their own refunds, retries, and error presentation.
+`count_tokens` is not blocked. Request records label local blocks as `refusal_cooldown`; logs include
+the matching evidence type, category, strike count, and deadline, without raw identities or text.
+
+SQLite schema 16 stores HMAC-SHA256 fingerprints, categories, strike counts, and expiry times. A
+random fingerprint secret is persisted in runtime settings so protection survives restarts without
+depending on API-key rotation. No conversation text or raw session identifier is persisted. Expired
+rows are pruned on startup and when recording refusals. A database read failure stops admission;
+a cooldown-write failure after the response was sent is reported in logs and the request record.
+
+This identifies conversations, not people. Changed/compacted histories or changed system/tool
+context without a matching session can escape content matching. Identical conversations within
+one ingress, or reused session identifiers, cannot be distinguished across users. A normal follow-up
+retaining a refused history is also blocked until expiry. Requests admitted before the refusal is
+recorded can still finish; there is no cancellation of other in-flight requests.
+
 The dated protocol conclusions and unresolved questions are centralized in
 [`docs/protocol-findings.md`](docs/protocol-findings.md). Raw experiment notes remain in
 [`docs/protocol-experiments.md`](docs/protocol-experiments.md).
@@ -309,8 +352,9 @@ Anthropic policy refusals are detected from `stop_reason: "refusal"` in either t
 SSE `message_delta`; output-token count is not used as a proxy because a stream can be refused after
 partial output. The relay persists only hourly account/category counts and the latest observation
 time—never `stop_details.explanation`, prompts, or response content. The account view reports a
-rolling 24-hour hourly aggregate (the boundary bucket may extend by up to one hour). Refusals are
-observational only: they do not cool down accounts, disable them, trigger failover, or alter routing.
+rolling 24-hour hourly aggregate (the boundary bucket may extend by up to one hour). These account
+observations do not cool down accounts, disable them, trigger failover, or alter account routing.
+The independent conversation guard described above rejects matching follow-up Messages requests.
 
 The usage console values raw input, output, five-minute/one-hour cache creation, and cache reads
 against versioned per-model prices. It derives token cache coverage as cache reads divided by all
