@@ -1,10 +1,14 @@
 # Current protocol findings
 
-Last reviewed: 2026-07-31
+Last reviewed: 2026-10-17
 
 This is the compact handoff document for future work. It records what was observed, what was
 experimentally accepted, and what remains an inference. Recheck it whenever Claude Code or the
 available model generation changes.
+
+The [2026-10-17 client-identification research](cc-client-identification.md) records new API-key
+captures from signed native CLI builds, including customization limits, matching session fields,
+and a reproducible `cc_version` suffix. Admission policy was not changed by that exploration.
 
 ## Evidence labels
 
