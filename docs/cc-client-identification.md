@@ -1,6 +1,7 @@
 # Claude Code identification research
 
-Observed on 2026-10-17. Production admission and cooldown policies were not changed.
+Observed on 2026-10-17. The initial exploration did not change admission or cooldown policies.
+The subsequently authorized consistency checks are described below.
 
 ## Objective and boundary
 
@@ -38,6 +39,12 @@ Local artifacts and the synthetic harness are under ignored `data/cc-identificat
 `captures.json`, `prismcat.db`, `summary.json`, `probe.py`, `extra_probes.py`, and
 `interactive_probe.py`. Authentication headers are redacted. Artifacts still contain local paths
 and synthetic conversation/environment text and should not be published as production fixtures.
+The overlay Go probe has a `cc_identification_research` build tag so ordinary `go test ./...`
+does not compile it as a separate package beneath `data/`. Replay it with:
+
+```sh
+go test -tags cc_identification_research -overlay data/cc-identification-2026-10-17/overlay.json ./internal/proxy -run '^TestCCIdentificationResearch$' -v
+```
 
 ## Observations
 
@@ -130,6 +137,20 @@ client verification. Repeated refusal behavior still needs independent controls.
 - Real provider acceptance, feature-flag variations, and false-positive rates. None were measured.
 - Which components differed in the earlier production burst. Historical whole-chain hashes
   cannot recover the missing request bodies, device values, or individual component changes.
+
+## Follow-up implementation
+
+Classifier v6 adds official-ingress rejection for contradictory session IDs, UA/billing release
+versions, and comparable UA/billing entrypoints. It retains the existing request-shape rules and
+does not require default coding prompts or tools. The original metadata parser now serves both
+cooldown fingerprinting and consistency checks, including legacy session strings. Compatible
+ingresses only observe these comparisons.
+
+The version suffix remains observational, limited to the two releases tested here; unknown releases
+are explicitly marked unsupported for this diagnostic. CCH presence is recorded without its value
+and is never rejected by itself. Both choices preserve the user's requirement to support genuine
+CC across modes, rather than enforce a default-profile restriction. Raw identifiers and prompts
+are not added to logs. See the README for the current admission contract.
 
 References: [CLI reference](https://code.claude.com/docs/en/cli-reference),
 [authentication](https://code.claude.com/docs/en/authentication),

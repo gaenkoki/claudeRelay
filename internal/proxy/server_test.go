@@ -248,6 +248,7 @@ func TestForwardNormalizesToolNamesOnlyForExperimentalIngress(t *testing.T) {
 	officialRequest := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(officialBody))
 	officialRequest.Header.Set("x-api-key", "official-downstream-key")
 	setOfficialClaudeCodeTestHeaders(officialRequest)
+	officialRequest.Header.Set("User-Agent", "claude-cli/"+defaultClaudeCodeVersion+" (external, claude-desktop)")
 	officialRecorder := httptest.NewRecorder()
 	server.routes().ServeHTTP(officialRecorder, officialRequest)
 	if officialRecorder.Code != http.StatusOK {
@@ -1080,7 +1081,7 @@ func officialClaudeCodeTestBody() string {
 
 func setOfficialClaudeCodeTestHeaders(request *http.Request) {
 	request.Header.Set("User-Agent", "claude-cli/2.1.247 (external, cli)")
-	request.Header.Set(claudeCodeSessionHeader, "official-session")
+	request.Header.Set(claudeCodeSessionHeader, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
 	request.Header.Set("X-App", "cli")
 	request.Header.Set("anthropic-beta", "claude-code-20250219")
 	request.Header.Set("anthropic-version", "2023-06-01")

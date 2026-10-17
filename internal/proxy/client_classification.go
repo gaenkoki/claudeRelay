@@ -5,9 +5,11 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+
+	"github.com/local/claude-relay/internal/metrics"
 )
 
-const clientClassificationVersion = 5
+const clientClassificationVersion = 6
 
 const (
 	clientClassCompatible  = "compatible"
@@ -66,10 +68,11 @@ type clientEvidence struct {
 }
 
 type clientObservation struct {
-	Class    string
-	Kind     string
-	Version  int
-	Evidence clientEvidence
+	Class       string
+	Kind        string
+	Version     int
+	Evidence    clientEvidence
+	Consistency *metrics.ClientConsistency
 }
 
 func classifyClient(root map[string]any, headers http.Header, path string) clientObservation {
@@ -83,6 +86,9 @@ func classifyClient(root map[string]any, headers http.Header, path string) clien
 		Kind:     clientKindCompatible,
 		Version:  clientClassificationVersion,
 		Evidence: evidence,
+	}
+	if evidence.ClaudeUserAgent || evidence.BillingBlock {
+		observation.Consistency = inspectClientConsistency(root, headers)
 	}
 	if evidence.hasCompleteHeaders() {
 		switch {

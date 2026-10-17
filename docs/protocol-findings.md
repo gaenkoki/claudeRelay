@@ -79,13 +79,16 @@ does not by itself prove how Anthropic classified subscription usage.
   background-session request and its status-classification helper; foreground requests used `cli`.
   The background main request retained structured metadata, billing attribution, and the official
   system prompt. PrismCat captured these before New API without header or body overrides.
-- **Current classification policy:** classifier v5 accepts `X-App: cli` or `cli-bg` and requires
+- **Current classification policy:** classifier v6 accepts `X-App: cli` or `cli-bg` and requires
   the User-Agent and session headers above plus non-empty
   `anthropic-beta` and `anthropic-version`, then applies request-type-specific body checks. Ordinary
   Messages require structured metadata and a billing block or recognized official system prompt.
   Native `count_tokens`, the observed one-token Messages count fallback, and the one-token Haiku
   probe have deliberately narrower body checks. These are observable, spoofable request-shape
-  signals, not client authentication.
+  signals, not client authentication. Official admission additionally rejects contradictory
+  session, release-version, and comparable UA/billing-entrypoint claims. Missing auxiliary fields
+  are not contradictions; custom prompts, bare/headless mode, and variable tools are not rejected
+  merely for being small. Version-checksum outcomes are observational for tested releases only.
 - **Capture:** the tested New API deployment returned 404 for
   `/v1/messages/count_tokens?beta=true`. Claude Code continued, but native count-token
   compatibility through that gateway remains unresolved.
@@ -119,8 +122,9 @@ does not by itself prove how Anthropic classified subscription usage.
 - sub2api removed CCH based on an unrelated issue reference and has not introduced a replacement
   algorithm as of its 2026-07-29 main branch.
 - **Current policy:** CCH is an opaque caller-owned billing field. The relay does not generate,
-  calculate, validate, record, classify, bind accounts, or alter failover based on it. Existing
-  billing text is preserved as ordinary request content.
+  calculate, validate, bind accounts, or alter failover based on it. Classifier v6 records only
+  presence, never the value, and does not reject its presence. Existing billing text is preserved
+  as ordinary request content.
 - **Inference:** CCH may currently be a soft signal for client attribution, telemetry, staged
   validation, or abuse/risk scoring rather than a hard admission check. Accepting a missing or
   incorrect value is consistent with those uses and with backward compatibility, but no available

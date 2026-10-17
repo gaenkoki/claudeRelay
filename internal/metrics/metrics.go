@@ -26,6 +26,7 @@ type Event struct {
 	Error                 string
 	Failover              *Failover
 	Client                *ClientEvidence
+	ClientConsistency     *ClientConsistency
 	ClientClass           string
 	ClientKind            string
 	ClassificationVersion int
@@ -58,6 +59,16 @@ type ClientEvidence struct {
 	AnthropicVersion   bool `json:"anthropic_version"`
 }
 
+// ClientConsistency records only comparison outcomes, never original claims.
+type ClientConsistency struct {
+	Session    string   `json:"session"`
+	Version    string   `json:"version"`
+	Entrypoint string   `json:"entrypoint"`
+	Checksum   string   `json:"checksum"`
+	CCH        bool     `json:"cch_present"`
+	Violations []string `json:"violations,omitempty"`
+}
+
 // Failover names the account a request was moved away from. The relay permits at
 // most one alternate account, so a request has at most one of these. Without it
 // the rate-limited account would never appear in any per-account total.
@@ -69,25 +80,26 @@ type Failover struct {
 
 // Record is the JSON view of an Event.
 type Record struct {
-	RequestID             string          `json:"request_id"`
-	At                    int64           `json:"at"`
-	Path                  string          `json:"path"`
-	Ingress               string          `json:"ingress,omitempty"`
-	Model                 string          `json:"model,omitempty"`
-	Account               string          `json:"account,omitempty"`
-	Selection             string          `json:"selection,omitempty"`
-	Status                int             `json:"status"`
-	DurationMS            int64           `json:"duration_ms"`
-	Error                 string          `json:"error,omitempty"`
-	Failover              *Failover       `json:"failover,omitempty"`
-	ClientClass           string          `json:"client_class,omitempty"`
-	ClientKind            string          `json:"client_kind,omitempty"`
-	ClassificationVersion int             `json:"classification_version,omitempty"`
-	ClientEvidence        *ClientEvidence `json:"client_evidence,omitempty"`
-	RelayAction           string          `json:"relay_action,omitempty"`
-	Refusal               bool            `json:"refusal,omitempty"`
-	RefusalCategory       string          `json:"refusal_category,omitempty"`
-	RefusalBilling        *RefusalBilling `json:"refusal_billing,omitempty"`
+	RequestID             string             `json:"request_id"`
+	At                    int64              `json:"at"`
+	Path                  string             `json:"path"`
+	Ingress               string             `json:"ingress,omitempty"`
+	Model                 string             `json:"model,omitempty"`
+	Account               string             `json:"account,omitempty"`
+	Selection             string             `json:"selection,omitempty"`
+	Status                int                `json:"status"`
+	DurationMS            int64              `json:"duration_ms"`
+	Error                 string             `json:"error,omitempty"`
+	Failover              *Failover          `json:"failover,omitempty"`
+	ClientClass           string             `json:"client_class,omitempty"`
+	ClientKind            string             `json:"client_kind,omitempty"`
+	ClassificationVersion int                `json:"classification_version,omitempty"`
+	ClientEvidence        *ClientEvidence    `json:"client_evidence,omitempty"`
+	ClientConsistency     *ClientConsistency `json:"client_consistency,omitempty"`
+	RelayAction           string             `json:"relay_action,omitempty"`
+	Refusal               bool               `json:"refusal,omitempty"`
+	RefusalCategory       string             `json:"refusal_category,omitempty"`
+	RefusalBilling        *RefusalBilling    `json:"refusal_billing,omitempty"`
 }
 
 // AccountStat aggregates activity for one account alias.
@@ -167,6 +179,7 @@ func (r *Recorder) Record(event Event) {
 		ClassificationVersion: event.ClassificationVersion,
 		ClientEvidence:        event.Client,
 		RelayAction:           event.RelayAction,
+		ClientConsistency:     event.ClientConsistency,
 		Refusal:               event.Refusal,
 		RefusalCategory:       event.RefusalCategory,
 		RefusalBilling:        event.RefusalBilling,

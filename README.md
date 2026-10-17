@@ -87,6 +87,30 @@ one ingress, or reused session identifiers, cannot be distinguished across users
 retaining a refused history is also blocked until expiry. Requests admitted before the refusal is
 recorded can still finish; there is no cancellation of other in-flight requests.
 
+## Claude Code consistency checks
+
+The official ingress rejects contradictory client claims with HTTP 403 before account selection:
+the original Claude Code session header must equal the original metadata session when both exist;
+billing `cc_version` must agree with the User-Agent release; and billing `cc_entrypoint` must agree
+with an explicit `(external, entrypoint)` User-Agent label when both exist. Desktop's observed
+`claude-desktop-3p` attribution is equivalent to the `claude-desktop` UA label. Every occurrence of
+billing fields is checked, so a later duplicate cannot conceal an earlier contradiction. The
+existing opt-in A6API probe exception still bypasses official admission checks.
+
+These comparisons do not require a full default prompt or a fixed tool set. Existing auxiliary
+request rules, custom prompts, headless/SDK mode, bare mode, and background `cli-bg` requests remain
+supported; X-App is not compared to the billing entrypoint. Compatible and experimental ingresses
+record the same diagnostics without rejecting contradictions.
+
+Classifier v6 request records include comparison outcomes under `client_consistency`, visible in
+the management console's client-cell tooltip. The three-hex version checksum is observational only
+for native releases 2.1.286 and 2.1.295; other releases are marked unverified. CCH presence is also
+observational and never causes rejection by itself: genuine OAuth/provider-specific requests may
+carry it. No checksum, CCH value, or raw session/device identifier is added to request records.
+Official-ingress checksum mismatches and CCH presence produce structured observation logs, while
+rejections log fixed reason codes. These measures raise the cost of inconsistent imitation; they
+do not authenticate the originating executable. See [research evidence](docs/cc-client-identification.md).
+
 The dated protocol conclusions and unresolved questions are centralized in
 [`docs/protocol-findings.md`](docs/protocol-findings.md). Raw experiment notes remain in
 [`docs/protocol-experiments.md`](docs/protocol-experiments.md).

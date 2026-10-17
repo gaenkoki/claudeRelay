@@ -412,6 +412,17 @@ func (s *Server) forward(w http.ResponseWriter, incoming *http.Request) {
 		return
 	}
 	if ingress.RequireClaudeCode && !allowA6APIProbe {
+		if consistency := route.Client.Consistency; consistency != nil && len(consistency.Violations) > 0 {
+			event.RelayAction = "client_consistency_rejected"
+			slog.Warn("rejected inconsistent Claude Code request", "request_id", requestID, "ingress", ingress.Name,
+				"reasons", consistency.Violations)
+			fail(http.StatusForbidden, "permission_error", "official ingress requires a Claude Code-shaped request: inconsistent client identifiers ("+strings.Join(consistency.Violations, ", ")+")")
+			return
+		}
+		if consistency := route.Client.Consistency; consistency != nil && (consistency.Checksum == "mismatched" || consistency.CCH) {
+			slog.Info("Claude Code attribution observation", "request_id", requestID, "ingress", ingress.Name,
+				"checksum", consistency.Checksum, "cch_present", consistency.CCH)
+		}
 		if err := s.officialVersion.check(incoming.Header.Get("User-Agent")); err != nil {
 			slog.Warn("rejected Claude Code version on official ingress", "request_id", requestID,
 				"client_version", extractClaudeCodeUAVersion(incoming.Header.Get("User-Agent")), "error", err)
@@ -737,6 +748,7 @@ func (s *Server) forward(w http.ResponseWriter, incoming *http.Request) {
 }
 
 func recordClientObservation(event *metrics.Event, client clientObservation) {
+	event.ClientConsistency = client.Consistency
 	event.ClientClass = client.Class
 	event.ClientKind = client.Kind
 	event.ClassificationVersion = client.Version

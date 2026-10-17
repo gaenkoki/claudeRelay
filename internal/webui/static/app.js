@@ -1053,7 +1053,12 @@ function requestRow(record) {
     badge(client.label, client.css),
     small(`${clientKindLabel(record.client_kind)} · ${evidenceSummary(record.client_evidence)} · ${relayActionLabel(record.relay_action)}`),
   ));
+  const consistency = record.client_consistency;
   clientCell.title = `分类器 v${record.classification_version || "?"}`;
+  if (consistency) {
+    const labels = { matched: "一致", mismatched: "不一致", not_present: "无字段", not_comparable: "无可比字段", unavailable: "无可比文本", unsupported_version: "尚未验证该版本" };
+    clientCell.title += `\n会话：${labels[consistency.session] || consistency.session}\n版本：${labels[consistency.version] || consistency.version}\n入口：${labels[consistency.entrypoint] || consistency.entrypoint}\n版本尾码（仅观测）：${labels[consistency.checksum] || consistency.checksum}\n携带 CCH：${consistency.cch_present ? "是" : "否"}`;
+  }
   row.appendChild(clientCell);
 
   row.appendChild(cell(stack(
@@ -1271,6 +1276,7 @@ function evidenceSummary(evidence) {
 }
 
 function relayActionLabel(action) {
+  if (action === "client_consistency_rejected") return "客户端标记不一致拦截";
   if (action === "refusal_cooldown") return "拒绝会话冷却拦截";
   if (action === "passthrough") return "原样透传";
   if (action === "minimal_attribution") return "最小归因";

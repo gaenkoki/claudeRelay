@@ -77,15 +77,7 @@ func (g *refusalGuard) fingerprints(body []byte, headers http.Header, ingress st
 	var result refusalFingerprints
 	session := firstSessionHeader(headers)
 	if session == "" {
-		session = parseMetadataIdentity(root["metadata"]).SessionID
-		if session == "" {
-			// Older Claude Code clients encode the session in a flat user_id.
-			metadata, _ := root["metadata"].(map[string]any)
-			userID, _ := metadata["user_id"].(string)
-			if legacyMetadataUserIDPattern.MatchString(userID) {
-				session = userID[strings.LastIndex(userID, "_session_")+len("_session_"):]
-			}
-		}
+		session = originalMetadataSession(root["metadata"])
 	}
 	if session != "" {
 		key := "session:" + g.digest("session-v1", ingress, session)
