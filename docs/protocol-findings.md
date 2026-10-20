@@ -1,6 +1,6 @@
 # Current protocol findings
 
-Last reviewed: 2026-10-17
+Last reviewed: 2026-10-20
 
 This is the compact handoff document for future work. It records what was observed, what was
 experimentally accepted, and what remains an inference. Recheck it whenever Claude Code or the
@@ -9,6 +9,10 @@ available model generation changes.
 The [2026-10-17 client-identification research](cc-client-identification.md) records new API-key
 captures from signed native CLI builds, including customization limits, matching session fields,
 and a reproducible `cc_version` suffix. Admission policy was not changed by that exploration.
+Its 2026-10-20 SDK follow-up captures three CLI versions and proves that real CC can override
+SDK language, runtime, and package headers through `ANTHROPIC_CUSTOM_HEADERS`. Those fields
+are not client-authentication invariants, even with a minimum-version policy. No SDK enforcement
+was added; cross-session refusal-content cooldown remains deferred.
 
 ## Evidence labels
 

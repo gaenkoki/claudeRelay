@@ -138,7 +138,54 @@ client verification. Repeated refusal behavior still needs independent controls.
 - Which components differed in the earlier production burst. Historical whole-chain hashes
   cannot recover the missing request bodies, device values, or individual component changes.
 
-## Follow-up implementation
+## SDK consistency experiment — 2026-10-20
+
+Goal: find version-specific contradictions that can reject imitation while admitting genuine
+Claude Code modes. Cross-session refusal-content cooldown is deferred at the user's request;
+context-free matching can also affect legitimate retries after a false refusal.
+
+Thirteen additional Messages requests were captured against an isolated localhost mock, with
+dummy credentials and separate `CLAUDE_CONFIG_DIR` directories. Both existing native apps passed
+`codesign --verify --strict`. The older npm tarball came from the official
+`@anthropic-ai/claude-code` registry package and its SHA-512 matched the registry integrity value;
+only its JS entrypoint and package metadata were extracted, without running installation scripts.
+
+| CLI version / installation | Default SDK package header | Default runtime header |
+| --- | --- | --- |
+| 2.1.100 / npm JS, local Node | 0.81.0 | node / v24.21.0 |
+| 2.1.286 / Desktop-bundled native | 0.127.0 | node / v26.3.0 |
+| 2.1.295 / Desktop-bundled native | 0.128.0 | node / v26.3.0 |
+
+Default and custom-system/no-tools requests retained these values. However, **all three official
+versions also emitted `x-stainless-lang: python`, `x-stainless-runtime: CPython`, and SDK package
+`9.9.9` when configured through `ANTHROPIC_CUSTOM_HEADERS`**, while retaining their actual CC
+User-Agent. The two native versions additionally emitted an overridden `bun` runtime and empty
+SDK fields in separate cases. Every invocation exited successfully with exactly one mock Messages
+request; this establishes client behavior, not real Anthropic acceptance or production gateway
+preservation. These examples deliberately use unusual settings to disprove an invariant, not to
+estimate how often ordinary users configure them.
+
+The official [environment variable reference](https://code.claude.com/docs/en/env-vars) documents
+custom request headers; the actual override behavior above was independently captured. A minimum
+CLI version narrows the version matrix but cannot make mutable headers authoritative. In
+particular, a Python SDK header is not proof that the request bypassed CC. Enforcing default SDK
+headers would be a new configuration restriction requiring an explicit policy choice. No SDK
+rejection rule or production setting was added by this experiment.
+
+The inspected local New API implementation constructs a new HTTP request and does not copy
+`x-stainless-*` in its common/Claude header setup. Explicit channel header overrides can forward
+them. This is source evidence only; reseller gateways and the deployed configuration were not
+inspected in this experiment. Missing or rewritten SDK fields cannot identify the original client.
+
+Reproduction files remain in ignored `data/cc-sdk-research-2026-10-20/`: `run_matrix.py` tests the
+two native apps, `run_npm.py` adds the verified older npm entrypoint, and `analyze.py` checks all
+13 captures and redaction. Raw captures, isolated configs, and downloaded third-party code stay
+there rather than in Git. The local mock was stopped; no global CLI was installed or replaced.
+Local 2.1.299 contains only a partial Desktop download and was not executed. More versions are
+not needed to disprove SDK-header immutability; OS/auth/gateway coverage is still required before
+promoting any narrower candidate rule to enforcement.
+
+## Consistency implementation — 2026-10-17
 
 Classifier v6 adds official-ingress rejection for contradictory session IDs, UA/billing release
 versions, and comparable UA/billing entrypoints. It retains the existing request-shape rules and
@@ -146,7 +193,7 @@ does not require default coding prompts or tools. The original metadata parser n
 cooldown fingerprinting and consistency checks, including legacy session strings. Compatible
 ingresses only observe these comparisons.
 
-The version suffix remains observational, limited to the two releases tested here; unknown releases
+The version suffix remains observational, limited to releases 2.1.286 and 2.1.295; unknown releases
 are explicitly marked unsupported for this diagnostic. CCH presence is recorded without its value
 and is never rejected by itself. Both choices preserve the user's requirement to support genuine
 CC across modes, rather than enforce a default-profile restriction. Raw identifiers and prompts
