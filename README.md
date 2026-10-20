@@ -195,6 +195,38 @@ Anthropic's five-hour utilization is sampled for the console and usage estimates
 quota-aware policy described below also uses it for routing. Both
 limits can be overridden with the matching `CLAUDE_RELAY_*` environment variables.
 
+## Manual Claude usage resets
+
+In **账号 → 详情 → 查看 / 使用重置卡**, read the account's available reset grants, remaining
+uses, expiry, and covered quota windows. Spending requires an explicit confirmation for the
+selected account and card; nothing is redeemed automatically. The existing account OAuth token
+and configured account exit are reused. Disabled accounts are readable while their token remains
+valid, but are not automatically refreshed. The real organization and subject IDs come from the
+authenticated profile, never from relay-generated attribution identifiers.
+
+`GET /admin/v1/accounts/{alias}/usage-resets` returns grant status and the latest operation.
+`POST` to the same endpoint takes `grant_id`, a unique `request_id` (up to 64 URL-safe characters),
+and `confirmed: true`. The server rechecks eligibility before a new operation, records it in
+SQLite schema 17 before dispatch, and deduplicates settled IDs. The ledger contains no tokens;
+it survives account deletion/reimport so an uncertain spend is not forgotten.
+
+A connection failure, unexpected response, or interrupted operation leaves the outcome unresolved.
+Other operations for that upstream identity remain blocked, including across tabs and restarts.
+The UI can manually resubmit the **same** request ID for up to ten minutes; this may complete a
+previously unsuccessful spend. There are no automatic retries. After that window, verify the result
+on Claude's own usage page before choosing **已在官方核实，解除待确认状态**. This posts the same
+operation with `resolve_only: true` and `confirmed: true`; it releases only the operation lock and
+does not redeem a grant or clear routing cooldowns.
+
+Confirmed `reset` / `already_used` results atomically settle the ledger and remove only known
+quota cooldowns covered by that grant. Unrelated overload/model exclusions and refusal cooldowns
+remain. The relay then invalidates cached quota readings and refreshes subscription usage; failure
+to refresh is reported separately from the spend result. Historical usage is not erased.
+
+This uses an undocumented upstream interface. The status/profile reads were verified with an
+existing account on 2026-10-20; spending, retries, and browser interaction were tested with a local
+mock only, without consuming a real grant. See the [protocol evidence](docs/protocol-findings.md).
+
 ## Model list
 
 `GET /v1/models` and `GET /v1/models/{model_id}` accept the same model keys as Messages and return

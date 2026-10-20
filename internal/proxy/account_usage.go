@@ -290,25 +290,32 @@ func (s *Server) accountUsage(w http.ResponseWriter, r *http.Request, force bool
 		return
 	}
 	if force {
-		for _, window := range view.Windows {
-			if window.ID != "five_hour" {
-				continue
-			}
-			reset := normalizeResetIdentity(window.ResetsAt)
-			event := store.FiveHourEvent{
-				EventKey: "oauth:" + requestIDFromContext(r.Context()) + ":" + strconv.FormatInt(view.FetchedAt, 10), AccountID: account.ID,
-				ResetsAt: reset, Kind: store.FiveHourEventOAuth, ObservedAt: view.FetchedAt,
-				CompletedAt: view.FetchedAt, UsedPercent: window.UsedPercent, Complete: true,
-			}
-			if err := s.store.AddFiveHourEvents(r.Context(), []store.FiveHourEvent{event}); err != nil {
-				writeError(w, http.StatusInternalServerError, "api_error", "failed to save five-hour observation")
-				return
-			}
-			if resetSeconds, parseErr := strconv.ParseInt(reset, 10, 64); parseErr == nil && time.Now().Before(time.Unix(resetSeconds, 0)) {
-				s.sampler.observe(account, fiveHourReading{resetsAt: reset, usedPercent: window.UsedPercent, observedAt: view.FetchedAt})
-			}
-			break
+		if err := s.recordAccountUsageObservation(r.Context(), account, view, requestIDFromContext(r.Context())); err != nil {
+			writeError(w, http.StatusInternalServerError, "api_error", "failed to save five-hour observation")
+			return
 		}
 	}
 	writeJSON(w, http.StatusOK, view)
+}
+
+func (s *Server) recordAccountUsageObservation(ctx context.Context, account store.Account, view accountUsageView, eventID string) error {
+	for _, window := range view.Windows {
+		if window.ID != "five_hour" {
+			continue
+		}
+		reset := normalizeResetIdentity(window.ResetsAt)
+		event := store.FiveHourEvent{
+			EventKey: "oauth:" + eventID + ":" + strconv.FormatInt(view.FetchedAt, 10), AccountID: account.ID,
+			ResetsAt: reset, Kind: store.FiveHourEventOAuth, ObservedAt: view.FetchedAt,
+			CompletedAt: view.FetchedAt, UsedPercent: window.UsedPercent, Complete: true,
+		}
+		if err := s.store.AddFiveHourEvents(ctx, []store.FiveHourEvent{event}); err != nil {
+			return err
+		}
+		if resetSeconds, parseErr := strconv.ParseInt(reset, 10, 64); parseErr == nil && time.Now().Before(time.Unix(resetSeconds, 0)) {
+			s.sampler.observe(account, fiveHourReading{resetsAt: reset, usedPercent: window.UsedPercent, observedAt: view.FetchedAt})
+		}
+		break
+	}
+	return nil
 }

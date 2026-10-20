@@ -57,6 +57,7 @@ type Server struct {
 	refusalGuard     *refusalGuard
 	allowA6APIProbes atomic.Bool
 	a6APIProbeMu     sync.Mutex // Serialize persistence and publication of admin changes.
+	resetLocks       sync.Map   // Keyed by the authenticated upstream account and organization.
 	// missingUsageWarningAt rate-limits diagnostics for successful Messages
 	// responses whose decoded body did not contain Anthropic usage metadata.
 	missingUsageWarningAt atomic.Int64
@@ -234,6 +235,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /admin/v1/accounts/{alias}/cooldown/clear", s.clearAccountCooldown)
 	mux.HandleFunc("POST /admin/v1/accounts/{alias}/check", s.checkAccount)
 	mux.HandleFunc("GET /admin/v1/accounts/{alias}/usage", func(w http.ResponseWriter, r *http.Request) { s.accountUsage(w, r, false) })
+	mux.HandleFunc("GET /admin/v1/accounts/{alias}/usage-resets", s.listUsageResets)
+	mux.HandleFunc("POST /admin/v1/accounts/{alias}/usage-resets", s.useUsageReset)
 	mux.HandleFunc("POST /admin/v1/accounts/{alias}/usage/refresh", func(w http.ResponseWriter, r *http.Request) { s.accountUsage(w, r, true) })
 	mux.HandleFunc("POST /admin/v1/accounts/{alias}/proxy", s.setAccountProxy)
 	mux.HandleFunc("POST /admin/v1/oauth/claude/start", s.startClaudeOAuth)

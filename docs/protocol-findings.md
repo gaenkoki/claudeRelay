@@ -23,6 +23,32 @@ was added; cross-session refusal-content cooldown remains deferred.
   own live request.
 - **Inference:** best current explanation, not an Anthropic contract.
 
+## Manual usage-reset grants — 2026-10-20
+
+- **Source inspection:** CLIProxyAPI's management frontend implements the contract in
+  [`claudeResetGrants.ts`](https://github.com/router-for-me/Cli-Proxy-API-Management-Center/blob/main/src/services/api/claudeResetGrants.ts).
+  Status is `GET /api/oauth/usage?cedar_ember=1&skip_spend=1`; authenticated identity is
+  `GET /api/oauth/profile`. Claims use `POST /api/organizations/{organization.uuid}/reset_rate_limits`
+  with `{program:"cedar_ember", grant_id, request_id}` and OAuth bearer authentication.
+- **Binary inspection:** signed native CC 2.1.295 contains the same status query, claim path,
+  grant/request ID validation patterns, and `next_grant_id` / `already_used` result strings.
+- **Read-only live verification:** one enabled account, using its own configured HTTP proxy and
+  existing unexpired access token, received HTTP 200 for both reads. `cedar_ember.eligible` and
+  `at_limit` were true; one grant had `resets_total=1`, `resets_left=1`, `usable_now=true`,
+  `use_requires_limit=false`, and expiry `2026-10-22T16:00:00Z`. It covered `five_hour`, `seven_day`,
+  and `seven_day_overage_included`. No refresh token was rotated and no live claim was submitted.
+- **Implementation:** manual admin UI and endpoints, per-identity durable operation ledger in
+  schema 17, explicit confirmation, no automatic claim retries, and selective quota-cooldown
+  clearing. Actual profile account/organization IDs are distinct from relay attribution IDs.
+  Unknown outcomes survive restarts and require same-ID retry or explicit operator verification.
+- **Mock validation:** real upstream spending and its exact idempotency lifetime remain unverified.
+  The ten-minute manual retry bound follows the reference implementation, not a published provider
+  guarantee. Grant data is revalidated before new spends; malformed/missing permission fields
+  never enable redemption. The browser success flow was exercised with a disposable local account.
+- Local reference clones are under `/Users/qiulin/dev/CLIProxyAPI` and
+  `/Users/qiulin/dev/Cli-Proxy-API-Management-Center`; they were not modified. Browser fixture
+  files and the mock-success screenshot are ignored under `data/usage-reset-ui-check-2026-10-20/`.
+
 ## Stable native API behavior
 
 - **Acceptance test:** `anthropic-version` is required by the normal Messages API. The relay adds

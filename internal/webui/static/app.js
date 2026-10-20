@@ -42,7 +42,9 @@ async function api(path, options = {}) {
   try { payload = await response.json(); } catch { /* empty or non-JSON body */ }
   if (!response.ok) {
     if (response.status === 401) logout("管理密钥无效或已经变更。");
-    throw new Error(payload?.error?.message || payload?.message || `请求失败（${response.status}）`);
+    const error = new Error(payload?.error?.message || payload?.message || `请求失败（${response.status}）`);
+    error.status = response.status;
+    throw error;
   }
   return payload;
 }
@@ -1557,6 +1559,144 @@ async function toggleRoutingPolicy(element) {
   }
 }
 
+/* ---------------- manual usage resets ---------------- */
+
+let usageResetView = null;
+const RESET_RESULT_LABELS = {
+  reset: "重置成功", already_used: "该操作此前已完成", not_limited: "官方返回：当前无需重置",
+  cooldown: "官方重置冷却中", ineligible: "不符合官方重置条件", unavailable: "官方重置暂不可用",
+  auth_error: "账号授权失败", rate_limited: "官方接口限流", manually_resolved: "已人工核实并解除操作锁",
+};
+
+function usageResetReceiptKey(account) {
+  return `claudeRelayUsageReset:${account.account_uuid}`;
+}
+
+function openUsageResets(account) {
+  const view = { account, data: null, busy: false, receipt: readJSON(sessionStorage, usageResetReceiptKey(account)), error: "" };
+  usageResetView = view;
+  $("usageResetTitle").textContent = `${account.alias} · 重置卡`;
+  $("usageResetDialog").showModal();
+  refreshUsageResets(view);
+}
+
+async function refreshUsageResets(view) {
+  if (view.busy) return;
+  view.busy = true;
+  view.error = "";
+  renderUsageResets(view);
+  try {
+    const data = await api(`/admin/v1/accounts/${encodeURIComponent(view.account.alias)}/usage-resets`);
+    if (usageResetView !== view) return;
+    view.data = data;
+    view.error = data.status_error || "";
+    if (data.operation?.state !== "settled" && data.operation) {
+      view.receipt = data.operation;
+    } else if (data.operation?.request_id === view.receipt?.request_id) {
+      view.receipt = null;
+      sessionStorage.removeItem(usageResetReceiptKey(view.account));
+    }
+  } catch (error) {
+    view.error = error.message;
+  } finally {
+    view.busy = false;
+    if (usageResetView === view) renderUsageResets(view);
+  }
+}
+
+function renderUsageResets(view) {
+  if (usageResetView !== view) return;
+  const list = $("usageResetGrants");
+  list.replaceChildren();
+  const pending = view.receipt;
+  const status = view.data?.status;
+  const last = view.data?.operation;
+  $("usageResetMessage").textContent = view.busy ? "正在处理，请稍候…" : pending
+    ? "有一笔结果待确认的操作。可能已消耗卡片；在核实前不会发起新的兑换。"
+    : last ? `最近操作：${RESET_RESULT_LABELS[last.result] || last.state}`
+    : status?.eligible ? "请选择要使用的卡片。" : status ? "该账号目前没有可使用的重置机会。" : "尚未取得卡片信息。";
+  $("usageResetError").textContent = view.error;
+  $("refreshUsageResetsButton").disabled = view.busy;
+  if (pending) {
+    list.appendChild(note(`操作 ID：${pending.request_id}`));
+    const retry = button("核实 / 重试原操作", "btn", () => submitUsageReset(view, null, false));
+    retry.disabled = view.busy || Date.now() - pending.created_at >= 600000;
+    list.appendChild(retry);
+    if (Date.now() - pending.created_at >= 600000) list.appendChild(note("已超过安全重试时间，请到官方核实结果。"));
+    const resolve = button("已在官方核实，解除待确认状态", "btn", () => submitUsageReset(view, null, true));
+    resolve.disabled = view.busy;
+    list.appendChild(resolve);
+  }
+  for (const grant of status?.grants || []) {
+    list.appendChild(strong(grant.label || grant.id));
+    list.appendChild(note(`剩余 ${grant.resets_left} / ${grant.resets_total} 次 · 到期：${grant.ends_at ? new Date(grant.ends_at).toLocaleString() : "未标明"}`));
+    const windows = (grant.clears || []).map((name) => ({ five_hour: "五小时", seven_day: "周额度", seven_day_overage_included: "专项周额度" }[name] || name));
+    list.appendChild(note(`重置范围：${windows.join("、") || "未标明"}`));
+    const use = button(grant.blocked_reason || "使用一次重置", "btn btn-primary", () => submitUsageReset(view, grant, false));
+    use.disabled = view.busy || Boolean(pending) || Boolean(grant.blocked_reason);
+    list.appendChild(use);
+  }
+  if (status && !(status.grants || []).length) list.appendChild(note("没有重置卡。"));
+}
+
+async function submitUsageReset(view, grant, resolveOnly) {
+  if (view.busy || usageResetView !== view) return;
+  view.busy = true;
+  renderUsageResets(view);
+  try {
+    const accepted = await confirmDialog({
+      title: resolveOnly ? "解除待确认状态" : grant ? `为 ${view.account.alias} 使用重置卡` : "重试原重置操作",
+      lead: resolveOnly ? "请先在官方页面核实这笔操作的结果。解除后将允许新的兑换。" : grant ? "此操作会消耗一次官方重置机会，无法撤销。" : "将按原操作 ID 再次提交；若前次未完成，本次可能消耗一次重置机会。",
+      items: resolveOnly ? ["此操作本身不会向官方提交兑换，也不会解除账号额度冷却。"] : [grant?.label || view.receipt.grant_id, "提交超时不代表失败；结果不明时请勿另起兑换。"],
+      accept: resolveOnly ? "已核实，解除" : "确认",
+    });
+    if (!accepted || usageResetView !== view || !state.apiKey) return;
+    if (grant) {
+      view.receipt = { grant_id: grant.id, request_id: crypto.randomUUID(), created_at: Date.now(), state: "pending" };
+      sessionStorage.setItem(usageResetReceiptKey(view.account), JSON.stringify(view.receipt));
+    }
+    const receipt = view.receipt;
+    const result = await api(`/admin/v1/accounts/${encodeURIComponent(view.account.alias)}/usage-resets`, {
+      method: "POST", body: JSON.stringify({ grant_id: receipt.grant_id, request_id: receipt.request_id, confirmed: true, resolve_only: resolveOnly }),
+    });
+    if (usageResetView !== view) return;
+    if (result.operation.state === "settled") {
+      view.receipt = null;
+      sessionStorage.removeItem(usageResetReceiptKey(view.account));
+      if (["reset", "already_used"].includes(result.operation.result)) delete state.accountUsage[view.account.alias];
+    } else {
+      view.receipt = result.operation;
+    }
+    view.data = { ...view.data, operation: result.operation };
+    view.error = result.warning || "";
+    showToast(RESET_RESULT_LABELS[result.operation.result] || "重置结果待确认", result.operation.state !== "settled");
+    await refreshAll();
+    view.busy = false;
+    await refreshUsageResets(view);
+    if (result.warning) view.error = result.warning;
+  } catch (error) {
+    // These are explicit pre-dispatch refusals for a new operation. A lost
+    // response or a 500 may follow spending, so its receipt must survive.
+    if (grant && [400, 404, 409, 502].includes(error.status)) {
+      view.receipt = null;
+      sessionStorage.removeItem(usageResetReceiptKey(view.account));
+    }
+    if (resolveOnly && error.status === 404) {
+      // The operator explicitly verified the outcome, and the backend has no
+      // durable operation (for example the original request never arrived).
+      view.receipt = null;
+      sessionStorage.removeItem(usageResetReceiptKey(view.account));
+    }
+    view.error = `${error.message}${view.receipt ? "；请重新查询操作状态，勿重复兑换。" : ""}`;
+  } finally {
+    view.busy = false;
+    if (usageResetView === view) renderUsageResets(view);
+  }
+}
+
+$("closeUsageResetButton").addEventListener("click", () => $("usageResetDialog").close());
+$("refreshUsageResetsButton").addEventListener("click", () => { if (usageResetView) refreshUsageResets(usageResetView); });
+
 /* ---------------- account actions ---------------- */
 
 async function toggleAccount(account) {
@@ -1639,6 +1779,7 @@ function openActions(account) {
 
   list.appendChild(button("复制账号 UUID", "btn", () => copyText(account.account_uuid, "账号 UUID 已复制")));
   list.appendChild(button("出口设置", "btn", () => { $("actionsDialog").close(); openAccountProxy(account); }));
+  list.appendChild(button("查看 / 使用重置卡", "btn", () => { $("actionsDialog").close(); openUsageResets(account); }));
   list.appendChild(button("重命名", "btn", () => { $("actionsDialog").close(); openRename(account); }));
   list.appendChild(button("刷新订阅额度", "btn", async () => {
     $("actionsDialog").close();
@@ -1970,6 +2111,8 @@ function showApp() {
 }
 
 function logout(message = "") {
+  usageResetView = null;
+  $("usageResetDialog").close();
   state.apiKey = "";
   state.overview = null;
   state.refusalBillingDirty = false;

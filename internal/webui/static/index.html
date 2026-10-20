@@ -471,6 +471,17 @@
     </form>
   </dialog>
 
+  <dialog id="usageResetDialog" class="dialog" aria-labelledby="usageResetTitle">
+    <div class="dialog-body">
+      <div class="dialog-head"><h2 id="usageResetTitle">使用重置卡</h2><button id="closeUsageResetButton" class="btn btn-close" type="button" aria-label="关闭">×</button></div>
+      <p class="note">使用会消耗一次官方重置机会，且无法撤销。这里仅手动使用，不会自动兑换。</p>
+      <p id="usageResetMessage" class="note" role="status"></p>
+      <div id="usageResetGrants" class="action-list"></div>
+      <p id="usageResetError" class="form-error" role="alert"></p>
+      <button id="refreshUsageResetsButton" class="btn" type="button">重新查询</button>
+    </div>
+  </dialog>
+
   <dialog id="proxyDialog" class="dialog">
     <form method="dialog" class="dialog-body">
       <div class="dialog-head"><h2 id="proxyTitle">账号出口设置</h2><button class="btn btn-close" value="cancel" type="submit" aria-label="关闭">×</button></div>

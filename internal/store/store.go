@@ -86,7 +86,7 @@ type CooldownMatch struct {
 	Reason string
 }
 
-const schemaVersion = 16
+const schemaVersion = 17
 
 type Store struct {
 	db *sql.DB
@@ -291,6 +291,22 @@ func (s *Store) initialize(ctx context.Context) error {
 			value TEXT NOT NULL,
 			updated_at INTEGER NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS usage_reset_operations (
+			request_id TEXT PRIMARY KEY,
+			organization_uuid TEXT NOT NULL,
+			subject_uuid TEXT NOT NULL,
+			account_id INTEGER NOT NULL,
+			account_uuid TEXT NOT NULL,
+			grant_id TEXT NOT NULL,
+			clears_json TEXT NOT NULL,
+			state TEXT NOT NULL CHECK(state IN ('pending','unknown','settled')),
+			result TEXT NOT NULL DEFAULT '',
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS usage_reset_pending_idx ON usage_reset_operations(organization_uuid,subject_uuid)
+			WHERE state IN ('pending','unknown')`,
+		`CREATE INDEX IF NOT EXISTS usage_reset_identity_idx ON usage_reset_operations(organization_uuid,subject_uuid,created_at)`,
 	}
 	for _, statement := range statements {
 		if _, err := s.db.ExecContext(ctx, statement); err != nil {
@@ -456,6 +472,11 @@ func (s *Store) initialize(ctx context.Context) error {
 	}
 	if version < 16 {
 		if _, err := s.db.ExecContext(ctx, "PRAGMA user_version=16"); err != nil {
+			return fmt.Errorf("record database schema version: %w", err)
+		}
+	}
+	if version < 17 {
+		if _, err := s.db.ExecContext(ctx, "PRAGMA user_version=17"); err != nil {
 			return fmt.Errorf("record database schema version: %w", err)
 		}
 	}
