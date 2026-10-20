@@ -73,6 +73,10 @@ func NewServer(cfg config.Config, database *store.Store) (*Server, error) {
 	if cfg.MaxInflightPerAccount < 1 {
 		return nil, fmt.Errorf("config max_inflight_per_account must be positive")
 	}
+	concurrency, err := loadAccountConcurrencyPolicy(database, cfg.MaxInflightPerAccount)
+	if err != nil {
+		return nil, err
+	}
 	if cfg.MaxCountTokensInflightPerAccount == 0 {
 		cfg.MaxCountTokensInflightPerAccount = config.DefaultMaxCountTokensInflightPerAccount
 	}
@@ -123,7 +127,7 @@ func NewServer(cfg config.Config, database *store.Store) (*Server, error) {
 		countTokensLoad: countTokensLoad,
 		selector: accountSelector{
 			store: database, load: load, countTokensLoad: countTokensLoad,
-			maxInflightPerAcct:            cfg.MaxInflightPerAccount,
+			concurrency:                   concurrency,
 			maxCountTokensInflightPerAcct: cfg.MaxCountTokensInflightPerAccount,
 			sessions:                      sessions,
 			sampler:                       sampler,
@@ -212,6 +216,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /v1/models/{model_id}", s.getModel)
 	mux.HandleFunc("GET /admin/v1/overview", s.overview)
 	mux.HandleFunc("POST /admin/v1/routing/policy", s.setRoutingPolicy)
+	mux.HandleFunc("POST /admin/v1/routing/concurrency", s.setAccountConcurrency)
 	mux.HandleFunc("POST /admin/v1/official/version-bounds", s.setOfficialVersionBounds)
 	mux.HandleFunc("POST /admin/v1/official/a6api-probes", s.setA6APIProbes)
 	mux.HandleFunc("POST /admin/v1/refusal-billing", s.setRefusalBilling)

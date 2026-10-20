@@ -316,6 +316,15 @@
           </dl>
         </div>
 
+        <form id="accountConcurrencyForm" class="card">
+          <h3>账号并发上限</h3>
+          <label for="accountConcurrencyLimit">每账号 Messages 并发数</label>
+          <input id="accountConcurrencyLimit" type="number" min="1" step="1" required>
+          <p class="note">此数值分别限制每个账号，保存后立即生效，重启后保留。调低不会中断已有请求；达到上限的账号会对新请求限流，释放名额后恢复接收。count_tokens 使用独立额度。</p>
+          <button id="saveAccountConcurrencyButton" class="btn btn-primary" type="submit">保存并发上限</button>
+          <p id="accountConcurrencyError" class="form-error" role="alert"></p>
+        </form>
+
         <form id="refusalBillingForm" class="card refusal-billing-card">
           <h3>Claude 拒绝计费倍率</h3>
           <p class="note">仅调整上游明确拒绝请求的计费用量，保留真实消耗统计。未知或空分类不加价。</p>

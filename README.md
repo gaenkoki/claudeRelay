@@ -175,8 +175,13 @@ separately in the WebUI; credentials are omitted from administration responses a
 transport errors. To keep existing custom credentials, leave all three proxy inputs blank.
 Entering a new address replaces the entire custom proxy configuration, including authentication.
 
-`max_inflight_per_account` is a per-account hard in-process Messages request limit, set to `8` by
-default. Native `/v1/messages/count_tokens` calls use a separate short-request limit,
+`max_inflight_per_account` is a per-account hard in-process Messages request limit, set to `6` by
+default. In the WebUI, **接入 → 账号并发上限** shows the effective value and accepts a positive
+integer, such as 6 or 7. Saving applies immediately to every account and persists across restarts;
+the saved value overrides the config file and environment variable. Before the first WebUI save,
+the environment variable overrides the config file as usual (the Compose template separately
+defaults to 3). Lowering the limit never interrupts running requests; new Messages admissions wait
+for capacity or receive the existing local `429` response. Native `/v1/messages/count_tokens` calls use a separate short-request limit,
 `max_count_tokens_inflight_per_account`, set to `32` by default; they consume neither a Messages
 slot nor an active-session slot, and do not create or refresh session bindings.
 `max_active_sessions_per_account` admits at most `5` recently active, explicitly identified client

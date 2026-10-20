@@ -1292,7 +1292,7 @@ func TestStickyOverloadReturns429WithoutSwitchingAccount(t *testing.T) {
 	}))
 	defer upstream.Close()
 	server := newTestServer(t, upstream.URL, 4096)
-	server.selector.maxInflightPerAcct = 1
+	server.selector.concurrency.limit.Store(1)
 	importTestAccount(t, server.store, "secondary", "token-secondary", "22222222-2222-4222-8222-222222222222", "b")
 	body := `{"model":"claude-test","messages":[{"role":"user","content":"sticky overload"}]}`
 	headers := http.Header{"X-Claude-Session-Id": []string{"sticky-overload"}}
@@ -1383,7 +1383,7 @@ func TestForcedAccountDoesNotBypassWhenOverloaded(t *testing.T) {
 	}))
 	defer upstream.Close()
 	server := newTestServer(t, upstream.URL, 4096)
-	server.selector.maxInflightPerAcct = 1
+	server.selector.concurrency.limit.Store(1)
 	importTestAccount(t, server.store, "secondary", "token-secondary", "22222222-2222-4222-8222-222222222222", "b")
 	primary, found, err := server.store.AccountByAlias(t.Context(), "default")
 	if err != nil || !found {

@@ -296,7 +296,7 @@ type accountSelector struct {
 	store                         *store.Store
 	load                          *accountLoadTracker
 	countTokensLoad               *accountLoadTracker
-	maxInflightPerAcct            int
+	concurrency                   *accountConcurrencyPolicy
 	maxCountTokensInflightPerAcct int
 	sessions                      *sessionAdmissionTracker
 	sampler                       *subscriptionSampler
@@ -330,7 +330,7 @@ func (s accountSelector) loadPolicy(route requestRoute) (*accountLoadTracker, in
 	if route.CountTokens {
 		return s.countTokensLoad, s.maxCountTokensInflightPerAcct
 	}
-	return s.load, s.maxInflightPerAcct
+	return s.load, s.concurrency.current()
 }
 
 func (s accountSelector) makeSelection(route requestRoute, account store.Account, source string, pinned bool, policy string) selection {

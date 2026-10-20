@@ -87,10 +87,15 @@ The image contains only non-secret defaults. Compose passes these supported runt
 | `CLAUDE_RELAY_AVAILABILITY_API_KEY` | Read-only key for `GET /ops/v1/availability` | Empty (endpoint disabled) |
 | `CLAUDE_RELAY_UPSTREAM_PROXY` | HTTP(S) proxy for accounts set to follow global configuration | Empty |
 | `CLAUDE_RELAY_MAX_REQUEST_BYTES` | Maximum request body size | `33554432` |
-| `CLAUDE_RELAY_MAX_INFLIGHT_PER_ACCOUNT` | Hard per-account in-flight request limit | `8` |
+| `CLAUDE_RELAY_MAX_INFLIGHT_PER_ACCOUNT` | Hard per-account Messages limit before a WebUI override | `3` |
 | `CLAUDE_RELAY_MAX_ACTIVE_SESSIONS_PER_ACCOUNT` | New-session admission limit per account | `5` |
 | `CLAUDE_RELAY_AUTO_REFRESH_ENABLED` | Emergency global OAuth refresh switch | `true` |
 | `CLAUDE_RELAY_BIND_ADDRESS` | Host-side published address | `127.0.0.1` |
+
+The WebUI's `接入 → 账号并发上限` displays and changes the effective per-account Messages limit.
+A saved positive value overrides the config/environment startup limit and persists across restarts.
+Lowering it leaves existing requests running; new requests are admitted only when a slot is free.
+The application default is 6; the Compose template retains its separate startup default of 3.
 
 The Official Claude Code version lower and upper bounds are configured from the WebUI under
 `接入 → Official 版本限制`. They are persisted in the relay database and take effect immediately;

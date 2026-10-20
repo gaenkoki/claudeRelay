@@ -144,8 +144,10 @@ new sessions cannot all pass a stale count. Concurrent first requests for one ro
 reservation and account affinity. Existing bindings remain usable even when the account is at the
 session limit; prefix-only cache affinities never enter session admission.
 
-In-process Messages requests have a hard configurable limit (`max_inflight_per_account`, eight by
-default). Native `count_tokens` calls use a separate per-account short-request limit
+In-process Messages requests have a hard configurable limit (`max_inflight_per_account`, six by
+default). The WebUI can persist a positive override in runtime settings; selectors share its atomic
+value. A decrease preserves existing reservations and applies to subsequent admissions. No
+database migration is needed. Native `count_tokens` calls use a separate per-account short-request limit
 (`max_count_tokens_inflight_per_account`, 32 by default) and do not consume Messages or
 active-session slots or create session bindings. New sessions may try another eligible account, but
 an existing sticky session never

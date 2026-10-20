@@ -21,6 +21,7 @@ const state = {
   pendingOAuth: readJSON(sessionStorage, "claudeRelayPendingOAuth"),
   relayKeyVisible: false,
   refusalBillingDirty: false,
+  accountConcurrencyDirty: false,
   filters: { account: "", outcome: "" },
   accountQuery: "",
   accountStatus: "all",
@@ -1319,6 +1320,9 @@ function renderConnect() {
   $("runtimeMaxBytes").textContent = formatBytes(overview.max_request_bytes || 0);
   $("runtimeLogSize").textContent = `${overview.requests?.capacity ?? 0} 条`;
   $("runtimeStarted").textContent = overview.started_at ? new Date(overview.started_at).toLocaleString() : "—";
+  if (!state.accountConcurrencyDirty && !$("saveAccountConcurrencyButton").disabled) {
+    $("accountConcurrencyLimit").value = overview.max_inflight_per_account;
+  }
   if (!state.refusalBillingDirty && !$("saveRefusalBillingButton").disabled) {
     $("refusalBillingEnabled").checked = overview.refusal_billing.enabled;
     for (const input of $("refusalBillingForm").querySelectorAll("[data-refusal-category]")) {
@@ -1470,6 +1474,32 @@ async function saveRefusalBilling(element) {
     $("refusalBillingError").textContent = error.message;
   } finally {
     for (const input of inputs) input.disabled = false;
+    setBusy(element, false);
+    renderConnect();
+  }
+}
+
+async function saveAccountConcurrency(element) {
+  const input = $("accountConcurrencyLimit");
+  const limit = Number(input.value);
+  if (!Number.isSafeInteger(limit) || limit < 1) {
+    $("accountConcurrencyError").textContent = "请输入大于 0 的整数";
+    return;
+  }
+  setBusy(element, true, "保存中");
+  input.disabled = true;
+  $("accountConcurrencyError").textContent = "";
+  try {
+    const result = await api("/admin/v1/routing/concurrency", {
+      method: "POST", body: JSON.stringify({ max_inflight_per_account: limit }),
+    });
+    state.overview.max_inflight_per_account = result.max_inflight_per_account;
+    state.accountConcurrencyDirty = false;
+    showToast("每账号并发上限已保存，立即生效");
+  } catch (error) {
+    $("accountConcurrencyError").textContent = error.message;
+  } finally {
+    input.disabled = false;
     setBusy(element, false);
     renderConnect();
   }
@@ -1944,6 +1974,7 @@ function logout(message = "") {
   state.overview = null;
   state.refusalBillingDirty = false;
   state.accounts = [];
+  state.accountConcurrencyDirty = false;
   state.requests = [];
   stopPolling();
   sessionStorage.removeItem("claudeRelayAdminKey");
@@ -2354,6 +2385,11 @@ $("toggleRelayKey").addEventListener("click", () => {
 });
 $("routingPolicyButton").addEventListener("click", (event) => toggleRoutingPolicy(event.currentTarget));
 $("saveOfficialVersionButton").addEventListener("click", (event) => saveOfficialVersionBounds(event.currentTarget));
+$("accountConcurrencyForm").addEventListener("input", () => { state.accountConcurrencyDirty = true; });
+$("accountConcurrencyForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  saveAccountConcurrency($("saveAccountConcurrencyButton"));
+});
 $("refusalBillingForm").addEventListener("input", () => { state.refusalBillingDirty = true; });
 $("refusalBillingForm").addEventListener("submit", (event) => {
   event.preventDefault();

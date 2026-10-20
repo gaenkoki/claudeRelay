@@ -12,7 +12,7 @@ import (
 func TestCountTokensUsesIndependentInflightPool(t *testing.T) {
 	t.Parallel()
 	server := newTestServer(t, "http://127.0.0.1:1", 4096)
-	server.selector.maxInflightPerAcct = 1
+	server.selector.concurrency.limit.Store(1)
 	server.selector.maxCountTokensInflightPerAcct = 1
 	account, found, err := server.store.AccountByAlias(t.Context(), "default")
 	if err != nil || !found {
