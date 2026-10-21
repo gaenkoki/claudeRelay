@@ -8,6 +8,7 @@
   "database_file": "data/claude-relay.db",
   "upstream_base_url": "https://api.anthropic.com",
   "upstream_proxy": "",
+  "disable_upstream_compression": false,
   "max_request_bytes": 33554432,
   "max_inflight_per_account": 6,
   "max_count_tokens_inflight_per_account": 32,

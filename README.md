@@ -597,6 +597,17 @@ The relay supplies `anthropic-version: 2023-06-01` and `content-type: applicatio
 the client omits them. It replaces downstream authentication with the imported OAuth token and
 adds `?beta=true` to the upstream endpoint.
 
+Incoming Messages and token-count requests accept identity or gzip bodies. Both wire size and
+decoded size are limited by `max_request_bytes`; malformed gzip returns 400, oversized bodies
+return 413, and unsupported or stacked content encodings return 415.
+
+After account attribution, upstream bodies larger than 4 KiB use gzip at the fastest compression
+level when it reduces size. Set `disable_upstream_compression: true` or
+`CLAUDE_RELAY_DISABLE_UPSTREAM_COMPRESSION=true` to turn off outbound compression. Each upstream
+attempt logs `gzip`, `raw_bytes`, and `sent_body_bytes` without logging the body. Compression is
+lossless, including base64 images, and does not change token counts. Upstream errors retain the
+existing handling; compression rejection does not trigger an uncompressed retry.
+
 Each response includes `X-Claude-Relay-Request-ID`. A caller may supply a short ID containing only
 letters, digits, dots, colons, underscores, or hyphens; otherwise the relay generates one. The ID
 appears in request logs for correlation and is not forwarded to Anthropic.

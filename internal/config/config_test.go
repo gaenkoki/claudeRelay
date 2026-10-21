@@ -186,3 +186,22 @@ func TestRelayAndAdminKeysMustDiffer(t *testing.T) {
 		t.Fatal("Load() accepted identical relay and admin API keys")
 	}
 }
+
+func TestUpstreamCompressionEnvironment(t *testing.T) {
+	for _, value := range []string{"true", "false", "invalid"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("CLAUDE_RELAY_DISABLE_UPSTREAM_COMPRESSION", value)
+			var cfg Config
+			err := applyEnvironment(&cfg)
+			if value == "invalid" {
+				if err == nil {
+					t.Fatal("invalid boolean accepted")
+				}
+				return
+			}
+			if err != nil || cfg.DisableUpstreamCompression != (value == "true") {
+				t.Fatalf("disabled=%v err=%v", cfg.DisableUpstreamCompression, err)
+			}
+		})
+	}
+}

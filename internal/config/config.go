@@ -19,6 +19,7 @@ const (
 )
 
 type Config struct {
+	DisableUpstreamCompression       bool   `json:"disable_upstream_compression"`
 	Listen                           string `json:"listen"`
 	RelayAPIKey                      string `json:"relay_api_key"`
 	ExperimentalAPIKey               string `json:"experimental_api_key"`
@@ -63,6 +64,13 @@ func Load(path string) (Config, error) {
 }
 
 func applyEnvironment(cfg *Config) error {
+	if value := strings.TrimSpace(os.Getenv("CLAUDE_RELAY_DISABLE_UPSTREAM_COMPRESSION")); value != "" {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("parse CLAUDE_RELAY_DISABLE_UPSTREAM_COMPRESSION: %w", err)
+		}
+		cfg.DisableUpstreamCompression = parsed
+	}
 	if value := strings.TrimSpace(os.Getenv("CLAUDE_RELAY_LISTEN")); value != "" {
 		cfg.Listen = value
 	}

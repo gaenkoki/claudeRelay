@@ -366,18 +366,20 @@ func (s *Server) forward(w http.ResponseWriter, incoming *http.Request) {
 			return
 		}
 	}
-	limited := http.MaxBytesReader(w, incoming.Body, s.cfg.MaxRequestBytes)
-	body, err := io.ReadAll(limited)
-	if closeErr := limited.Close(); closeErr != nil {
-		slog.Warn("close incoming request", "request_id", requestID, "error", closeErr)
+	encoding := strings.ToLower(strings.TrimSpace(strings.Join(incoming.Header.Values("Content-Encoding"), ",")))
+	if encoding != "" && encoding != "identity" && encoding != "gzip" {
+		fail(http.StatusUnsupportedMediaType, "invalid_request_error", "unsupported Content-Encoding: expected gzip or identity")
+		return
 	}
+	body, err := readRequestBody(w, incoming.Body, encoding, s.cfg.MaxRequestBytes)
 	if err != nil {
+		slog.Warn("read incoming request", "request_id", requestID, "content_encoding", encoding, "error", err)
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
 			fail(http.StatusRequestEntityTooLarge, "invalid_request_error", "request body is too large")
 			return
 		}
-		fail(http.StatusBadRequest, "invalid_request_error", "failed to read request body")
+		fail(http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
 	includeMetadata := incoming.URL.Path == "/v1/messages"
@@ -839,11 +841,22 @@ func (s *Server) doUpstream(incoming *http.Request, body []byte, account store.A
 	query := incoming.URL.Query()
 	query.Set("beta", "true")
 	target.RawQuery = query.Encode()
-	request, err := http.NewRequestWithContext(withAccountExit(incoming.Context(), account), http.MethodPost, target.String(), bytes.NewReader(body))
+	encoded, compressed, err := encodeUpstreamBody(body, s.cfg.DisableUpstreamCompression)
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequestWithContext(withAccountExit(incoming.Context(), account), http.MethodPost, target.String(), bytes.NewReader(encoded))
 	if err != nil {
 		return nil, err
 	}
 	copyRequestHeaders(request.Header, incoming.Header)
+	// The incoming encoding describes bytes already decoded before JSON processing.
+	request.Header.Del("Content-Encoding")
+	if compressed {
+		request.Header.Set("Content-Encoding", "gzip")
+	}
+	slog.Info("upstream request body", "request_id", requestIDFromContext(incoming.Context()),
+		"account", account.Alias, "gzip", compressed, "raw_bytes", len(body), "sent_body_bytes", len(encoded))
 	// Let net/http own content negotiation so it can transparently decode gzip
 	// before the response reaches usage accounting. Forwarding the caller's
 	// Accept-Encoding leaves the body compressed and makes SSE metadata opaque.
