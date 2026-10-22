@@ -37,7 +37,7 @@ func encodeUpstreamBody(body []byte, disabled bool) ([]byte, bool, error) {
 		return body, false, nil
 	}
 	var buffer bytes.Buffer
-	writer, err := gzip.NewWriterLevel(&buffer, gzip.BestSpeed)
+	writer, err := gzip.NewWriterLevel(&buffer, 6)
 	if err != nil {
 		return nil, false, fmt.Errorf("create upstream gzip writer: %w", err)
 	}

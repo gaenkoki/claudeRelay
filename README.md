@@ -601,8 +601,8 @@ Incoming Messages and token-count requests accept identity or gzip bodies. Both 
 decoded size are limited by `max_request_bytes`; malformed gzip returns 400, oversized bodies
 return 413, and unsupported or stacked content encodings return 415.
 
-After account attribution, upstream bodies larger than 4 KiB use gzip at the fastest compression
-level when it reduces size. Set `disable_upstream_compression: true` or
+After account attribution, upstream bodies larger than 4 KiB use gzip level 6 when it reduces
+size. Set `disable_upstream_compression: true` or
 `CLAUDE_RELAY_DISABLE_UPSTREAM_COMPRESSION=true` to turn off outbound compression. Each upstream
 attempt logs `gzip`, `raw_bytes`, and `sent_body_bytes` without logging the body. Compression is
 lossless, including base64 images, and does not change token counts. Upstream errors retain the
