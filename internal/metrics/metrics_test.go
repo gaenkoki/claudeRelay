@@ -47,6 +47,25 @@ func TestZeroCapacityKeepsCountersWithoutRecords(t *testing.T) {
 	}
 }
 
+func TestExtraUsageCountersSurviveEvictionAndDisabledRequestLog(t *testing.T) {
+	t.Parallel()
+	for _, capacity := range []int{0, 2, 4} {
+		now := time.Now()
+		recorder := New(capacity)
+		recorder.Record(Event{Time: now.Add(-2 * RecentWindow), Status: 400, UpstreamErrorCategory: UpstreamErrorThirdPartyExtraUsage})
+		recorder.Record(Event{Time: now, Status: 400, UpstreamErrorCategory: UpstreamErrorThirdPartyExtraUsage})
+		recorder.Record(Event{Time: now, Status: 400})
+		summary := recorder.Summary(now)
+		wantRecent := int64(1)
+		if capacity == 0 {
+			wantRecent = 0
+		}
+		if summary.ThirdPartyExtraUsageRequests != 2 || summary.RecentThirdPartyExtraUsageRequests != wantRecent || summary.Failures != 3 {
+			t.Fatalf("capacity=%d summary=%+v", capacity, summary)
+		}
+	}
+}
+
 func TestFailoverCountsAgainstTheAbandonedAccount(t *testing.T) {
 	t.Parallel()
 	recorder := New(4)

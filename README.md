@@ -302,7 +302,10 @@ The console is a single dense screen with four sections:
   connectivity check, forced token refresh, cooldown release, rename, and deletion.
 - **请求** — the recent request records described below, filterable by account and by failures only.
   A policy refusal is marked separately even when Anthropic returns HTTP 200; it is not counted as a
-  transport failure.
+  transport failure. The known third-party extra-usage HTTP 400 is labeled separately, with
+  process-lifetime and recent-five-minute counts (the recent window uses retained request records).
+  Only its fixed diagnostic category is recorded;
+  the original upstream status, headers, and error body are returned to the caller without retries.
 - **用量** — hourly token/API-price totals plus current and explicitly exhausted five-hour windows.
   The usage view also compares Token cache coverage by API ingress group (`compatible`,
   `experimental`, and `official`). Ingress-group rows begin at the schema migration boundary;
@@ -513,9 +516,11 @@ ingress keeps the full account set for load spreading and failover.
 
 The compatible ingress performs only relay-required authentication and attribution changes. It does
 not rewrite third-party tool names. On the experimental ingress, custom tool names without the
-subscription upstream's `mcp__` prefix are normalized before forwarding. The relay updates the
-matching declaration, an explicit `tool_choice`, and prior `tool_use` blocks together. Typed
-Anthropic server tools (such as `web_search_20250305`) and already-prefixed names are unchanged.
+`mcp__` prefix are normalized before forwarding to avoid observed subscription name-classification
+errors. This includes tools with an explicit `type: "custom"` and tools that omit `type`. The relay
+updates the matching declaration, an explicit `tool_choice`, and prior `tool_use` blocks together.
+Typed Anthropic server tools (such as `web_search_20250305`), unknown typed tools, and
+already-prefixed names are unchanged.
 Tool names returned in non-streaming `tool_use` blocks and streaming `content_block_start` events
 are restored through the exact request mapping; the relay never strips an untracked `mcp__`
 prefix. A request that declares both `name` and `mcp__name` is rejected because the transformed

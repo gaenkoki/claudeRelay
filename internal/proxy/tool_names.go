@@ -16,9 +16,9 @@ const mcpToolNamePrefix = "mcp__"
 type toolNameMapping map[string]string
 
 // normalizeExperimentalToolNames adapts third-party custom tool names to the
-// MCP-shaped names required by the subscription upstream. Anthropic server
-// tools carry a versioned type and require their fixed names, so they are never
-// renamed. References in tool_choice and prior tool_use blocks are changed
+// MCP-shaped names that avoid observed subscription tool-name classification.
+// Anthropic server tools carry a versioned type and require their fixed names, so
+// they are never renamed. References in tool_choice and prior tool_use blocks are changed
 // only when their matching custom declaration was renamed.
 func normalizeExperimentalToolNames(body []byte) ([]byte, int, toolNameMapping, error) {
 	var root map[string]any
@@ -53,9 +53,10 @@ func normalizeExperimentalToolNames(body []byte) ([]byte, int, toolNameMapping, 
 			if !ok {
 				continue
 			}
-			// Built-in tools such as web_search_20250305 are discriminated by
-			// type and reject any name other than their documented fixed name.
-			if _, builtIn := tool["type"]; builtIn {
+			// Custom tools may omit type or explicitly use "custom". Other typed
+			// tools include server tools with fixed names; leave them unchanged,
+			// including unknown types, for upstream validation.
+			if toolType, typed := tool["type"]; typed && toolType != "custom" {
 				continue
 			}
 			name, ok := tool["name"].(string)

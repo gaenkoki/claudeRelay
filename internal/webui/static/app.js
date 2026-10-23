@@ -189,6 +189,9 @@ function renderStats() {
   $("statRecentNote").textContent = (summary.recent_failures || 0) > 0
     ? `${summary.recent_failures} 次失败`
     : "无失败";
+  if (summary.recent_third_party_extra_usage_requests > 0) {
+    $("statRecentNote").textContent += ` · ${summary.recent_third_party_extra_usage_requests} 次第三方额外额度限制`;
+  }
 
   const requestTotal = summary.requests || 0;
   const failures = summary.failures || 0;
@@ -424,6 +427,9 @@ function renderRequests() {
   $("requestSummary").textContent = capacity === 0
     ? "请求记录已关闭（request_log_size = 0）"
     : `显示 ${visible.length} / ${state.requests.length} 条 · 内存容量 ${capacity} 条`;
+  if (state.overview?.requests?.third_party_extra_usage_requests > 0) {
+    $("requestSummary").textContent += ` · 本次启动累计 ${state.overview.requests.third_party_extra_usage_requests} 次第三方额外额度限制`;
+  }
 
   const body = $("requestsBody");
   body.replaceChildren();
@@ -1018,6 +1024,8 @@ function requestRow(record) {
     : null;
   const outcome = cell(stack(
     badge(label, failed ? "badge-bad" : (record.refusal ? "badge-warn" : "badge-ok")),
+    record.upstream_error_category === "third_party_extra_usage_required"
+      ? badge("第三方调用需额外额度", "badge-warn") : null,
     record.error ? small(record.error) : (refusalNote ? small(refusalNote) : null),
   ));
   row.appendChild(outcome);

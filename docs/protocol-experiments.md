@@ -130,3 +130,150 @@ The current evidence supports an ordinary-client transformer with this idempoten
 - Preserve existing billing text as caller-owned content, but do not give CCH any classification,
   routing, pinning, or failover semantics.
 - Never add Claude Code identity or software-engineering instructions.
+
+## 2026-10-24: tool-name classification and the extra-usage 400
+
+### Scope and controls
+
+Live probes ran on RN from 02:57 to 03:07 Asia/Shanghai through the existing relay,
+deployed image revision `125e4edb31956858e22511f3188e011677e15f96`. No deployment,
+configuration, routing-policy, or account-placement changes were made. The suite sent
+115 serial synthetic Messages requests: 76 HTTP 200, 38 instances of the target
+extra-usage HTTP 400, and one unrelated tool-choice HTTP 400.
+
+The main matrix pinned one enabled account and `claude-opus-5-5`; selected name
+contrasts were repeated on a second account. The `weather` / `mcp_weather` /
+`mcp__weather` contrast was also checked on Sonnet 5.5 and Haiku 5.5 on the first
+account. Exa-specific contrasts were tested on Opus 5.5 on both accounts.
+
+Requests used an identical empty-object custom-tool schema and description, a short
+ordinary system prompt, and a synthetic user message. Ordinary probes capped output
+at 16 tokens and asked the model not to call tools. Dedicated synthetic tool-call
+probes used larger output caps. Only names changed within each naming contrast.
+The compatible ingress still supplied its normal minimum billing/metadata attribution;
+these are not tests of a completely unmodified request sent directly to Anthropic.
+
+Reproducible harness and JSONL results are under the ignored directory
+`data/protocol-research-2026-10-24/`. Docker credentials were read only into remote
+memory and were not printed, downloaded, or stored in results. No customer prompts
+or database snapshots were exported. Each result records synthetic request overrides,
+response bodies, upstream request IDs, and selected quota headers.
+
+### Observed name boundaries
+
+The target response was HTTP 400 `invalid_request_error` with this message:
+
+```text
+Third-party apps now draw from extra usage, not plan limits. Ask your workspace admin to add more and keep going.
+```
+
+| Custom tool name or list | Result on Opus 5.5 |
+| --- | --- |
+| `web_search_exa` | Target 400; repeated on both accounts |
+| `get_code_context_exa` | Target 400 on both accounts |
+| `Web_search_exa`, `WebSearchExa`, `web_search_Exa` | 200 |
+| `web_search_exa2`, `web_search_exa_test`, `my_web_search_exa` | 200 |
+| `web_search`, `web_fetch_exa`, `web_search_foo`, `web_search_google` | 200 |
+| `exa_web_search`, `code_search_exa` | 200 |
+| `weather`, `get_weather`, `getWeather`, `foo`, `read_file` | 200 |
+| `mcp_weather`, `mcp_get_weather`, `mcp_web_search_exa` | Target 400 |
+| `mcp__weather`, `mcp__get_weather`, `mcp__web_search_exa` | 200 |
+| `mcp`, `mcp-weather`, `Mcp_weather`, `mcpX_weather`, `my_mcp_weather` | 200 |
+| `mcp___weather`, `mcp__` | 200; no claim that these are canonical MCP names |
+| `sessions_list`, `cc_sess_list`, `fetch_wea00` | 200 |
+| 1, 2, 5, 6, or 12 tools named `get_weather0`, `get_weather1`, ... | 200 |
+| A passing `weather` plus a failing `mcp_weather` | Target 400 |
+
+The spelling/case contrasts support a case-sensitive name-matching gate. The two
+rejected Exa names behave like exact-name matches within the tested neighborhood;
+the tested single-underscore `mcp_` names suggest another prefix-sensitive rule.
+This is an inference from responses, not a recovered blacklist, regular expression,
+or official contract. It does not establish a rule for every name or request shape.
+Neither lowercase names nor underscores nor having more than five custom tools were
+sufficient to cause rejection in these probes.
+
+### Header and system-feature controls
+
+For both failing names `mcp_weather` and `web_search_exa`, the target 400 persisted
+after adding each of these, and after combining them:
+
+- The beta set returned by sub2api's `FullClaudeCodeMimicryBetas` at the inspected revision.
+- CLI-style User-Agent, `x-app`, and Stainless headers.
+- Claude Code identity text.
+- A three-block system with a CLI billing entrypoint, version/fingerprint suffix,
+  identity, and a short generic expansion. The User-Agent and billing versions agreed.
+
+Changing the name to an `mcp__` name made the combined-feature control succeed.
+An explicit OpenCode identity sentence with the passing `weather` name also succeeded.
+These controls do not execute sub2api or reproduce its complete system expansion,
+cache policy, transport, and identity implementation. They show that the tested
+header/system changes did not rescue these failing names, and that a full CLI
+header set was not required for the passing baseline requests in this matrix.
+
+### What sub2api contributes
+
+Source inspected: `Wei-Shaw/sub2api` revision
+`5c185c5c5d4f5e409e2139806e0964ae944e03e8` (2026-10-23), especially
+[`gateway_tool_rewrite.go`](https://github.com/Wei-Shaw/sub2api/blob/5c185c5c5d4f5e409e2139806e0964ae944e03e8/backend/internal/service/gateway_tool_rewrite.go)
+and
+[`gateway_forward.go`](https://github.com/Wei-Shaw/sub2api/blob/5c185c5c5d4f5e409e2139806e0964ae944e03e8/backend/internal/service/gateway_forward.go).
+
+Its OAuth mimic path dynamically renames custom tools when there are more than five,
+using ordinary lowercase names in a prefix + first-three-characters + index format.
+With five or fewer, only its static `sessions_` / `session_` substitutions apply;
+the two Exa names are unchanged by that name mapper.
+
+A six-tool synthetic list containing both rejected Exa names failed. Replacing only
+the six names with representative names of sub2api's dynamic format succeeded;
+restoring the original list failed again. This tests the naming shape, not its exact
+FNV-seeded Go RNG output or the complete sub2api service. It supports dynamic renaming
+as a relevant mechanism; it does not prove every other mimicry step is necessary,
+nor that sub2api's unchanged small-tool path currently succeeds for these names.
+
+### Existing experimental ingress and usage evidence
+
+The existing experimental ingress turned failing `mcp_weather` and `web_search_exa`
+requests into successes. On a synthetic tool-call exchange, the downstream received
+the original `mcp_weather` name, returned its tool result using that original name,
+and received a completed HTTP 200 assistant response. A separate SSE exchange
+returned the original tool name in `content_block_start` and ended with `message_stop`.
+No real diagnostic tool was executed; the tool result was synthetic.
+
+Every HTTP 200 response reported `Anthropic-Ratelimit-Unified-Representative-Claim:
+five_hour`. Both accounts' extra usage was disabled, reported used credits remained
+zero, and successful responses reported overage rejected with `org_level_disabled`.
+Fresh usage snapshots retained rounded five-hour readings of 0% and 7% respectively.
+These headers support the subscription path for successful probes. Coarse utilization
+and concurrent service traffic do not permit an exact marginal quota-cost estimate.
+
+Two harness calibration outcomes are retained in the raw results: Opus 5.5 rejected
+forced `tool_choice` type `tool` with a different, explicit 400; a 32-token tool-result
+continuation ended at `max_tokens`. The completed exchange used `auto` and a 256-token
+continuation cap. Neither calibration result is evidence for the extra-usage gate.
+
+No production transformation was changed during this probe run. The supported next step is to retain the
+existing experimental name adaptation, preserve original request semantics elsewhere,
+and diagnose additional failures from a concrete failing request before broadening it.
+
+### Follow-up: explicit custom tool types and implementation
+
+Five additional RN probes confirmed that `type: "custom"` is accepted with `weather`
+and with `mcp__web_search_exa`, while raw `web_search_exa` still receives the target
+400 on both compatible and experimental ingress. The experimental normalizer treated
+every explicit `type` as a server tool, accidentally skipping this supported custom
+form. `type: "function"` received a separate upstream schema-validation error and
+must not be inferred to be a supported native Anthropic custom-tool type from
+sub2api's name-mapper condition.
+
+The experimental normalizer now includes explicit `custom` tools; other typed tools
+remain unchanged for upstream validation. Regression fixtures cover the three observed
+failing names, omitted/explicit custom type, declarations and references, and response
+name restoration. No blacklist or tool-count threshold was added.
+
+Known extra-usage HTTP 400 responses are categorized as
+`third_party_extra_usage_required` in request records and counted in the process and
+recent-window summaries. Classification reads a bounded 8 KiB error preview and
+retains only a fixed diagnostic, not the upstream body or message. Error responses
+bypass tool-name restoration and are forwarded unchanged, including malformed JSON.
+The console shows the category and counts. This diagnostic applies across ingresses
+and does not change routing, retries, billing, or request semantics.

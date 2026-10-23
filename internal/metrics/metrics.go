@@ -10,6 +10,9 @@ import (
 	"time"
 )
 
+// UpstreamErrorThirdPartyExtraUsage identifies the observed subscription classification error.
+const UpstreamErrorThirdPartyExtraUsage = "third_party_extra_usage_required"
+
 // Event describes one completed relay attempt.
 type Event struct {
 	RequestID string
@@ -24,6 +27,7 @@ type Event struct {
 	Status                int
 	Duration              time.Duration
 	Error                 string
+	UpstreamErrorCategory string
 	Failover              *Failover
 	Client                *ClientEvidence
 	ClientConsistency     *ClientConsistency
@@ -90,6 +94,7 @@ type Record struct {
 	Status                int                `json:"status"`
 	DurationMS            int64              `json:"duration_ms"`
 	Error                 string             `json:"error,omitempty"`
+	UpstreamErrorCategory string             `json:"upstream_error_category,omitempty"`
 	Failover              *Failover          `json:"failover,omitempty"`
 	ClientClass           string             `json:"client_class,omitempty"`
 	ClientKind            string             `json:"client_kind,omitempty"`
@@ -112,12 +117,14 @@ type AccountStat struct {
 
 // Summary aggregates activity across all accounts.
 type Summary struct {
-	StartedAt      int64 `json:"started_at"`
-	Requests       int64 `json:"requests"`
-	Failures       int64 `json:"failures"`
-	RecentRequests int64 `json:"recent_requests"`
-	RecentFailures int64 `json:"recent_failures"`
-	Capacity       int   `json:"capacity"`
+	StartedAt                          int64 `json:"started_at"`
+	Requests                           int64 `json:"requests"`
+	Failures                           int64 `json:"failures"`
+	RecentRequests                     int64 `json:"recent_requests"`
+	RecentFailures                     int64 `json:"recent_failures"`
+	ThirdPartyExtraUsageRequests       int64 `json:"third_party_extra_usage_requests"`
+	RecentThirdPartyExtraUsageRequests int64 `json:"recent_third_party_extra_usage_requests"`
+	Capacity                           int   `json:"capacity"`
 }
 
 // RecentWindow is the trailing period reported as "recent" activity.
@@ -127,14 +134,15 @@ const RecentWindow = 5 * time.Minute
 // A nil or zero-capacity Recorder accepts events and discards them, which keeps
 // the relay path free of conditional logic when logging is turned off.
 type Recorder struct {
-	mu       sync.Mutex
-	ring     []Record
-	next     int
-	filled   bool
-	requests int64
-	failures int64
-	accounts map[string]*AccountStat
-	started  time.Time
+	mu                           sync.Mutex
+	ring                         []Record
+	next                         int
+	filled                       bool
+	requests                     int64
+	failures                     int64
+	thirdPartyExtraUsageRequests int64
+	accounts                     map[string]*AccountStat
+	started                      time.Time
 }
 
 // New returns a Recorder holding at most capacity records.
@@ -173,6 +181,7 @@ func (r *Recorder) Record(event Event) {
 		Status:                event.Status,
 		DurationMS:            event.Duration.Milliseconds(),
 		Error:                 event.Error,
+		UpstreamErrorCategory: event.UpstreamErrorCategory,
 		Failover:              event.Failover,
 		ClientClass:           event.ClientClass,
 		ClientKind:            event.ClientKind,
@@ -191,6 +200,9 @@ func (r *Recorder) Record(event Event) {
 	r.requests++
 	if failed {
 		r.failures++
+	}
+	if record.UpstreamErrorCategory == UpstreamErrorThirdPartyExtraUsage {
+		r.thirdPartyExtraUsageRequests++
 	}
 	if record.Account != "" {
 		r.touchAccountLocked(record.Account, failed, record.At, record.Status)
@@ -234,10 +246,11 @@ func (r *Recorder) Summary(now time.Time) Summary {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	summary := Summary{
-		StartedAt: r.started.UnixMilli(),
-		Requests:  r.requests,
-		Failures:  r.failures,
-		Capacity:  len(r.ring),
+		StartedAt:                    r.started.UnixMilli(),
+		Requests:                     r.requests,
+		Failures:                     r.failures,
+		ThirdPartyExtraUsageRequests: r.thirdPartyExtraUsageRequests,
+		Capacity:                     len(r.ring),
 	}
 	cutoff := now.Add(-RecentWindow).UnixMilli()
 	stored := r.storedLocked()
@@ -249,6 +262,9 @@ func (r *Recorder) Summary(now time.Time) Summary {
 		summary.RecentRequests++
 		if Failed(record.Status, record.Error) {
 			summary.RecentFailures++
+		}
+		if record.UpstreamErrorCategory == UpstreamErrorThirdPartyExtraUsage {
+			summary.RecentThirdPartyExtraUsageRequests++
 		}
 	}
 	return summary

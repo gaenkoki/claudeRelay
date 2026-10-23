@@ -628,15 +628,17 @@ func (s *Server) forward(w http.ResponseWriter, incoming *http.Request) {
 	}
 
 	contentType := response.Header.Get("Content-Type")
-	var authPreview authenticationPreview
+	var errorPreview upstreamErrorPreview
 	var responseReader io.Reader = response.Body
-	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
-		responseReader = io.TeeReader(response.Body, &authPreview)
+	if response.StatusCode == http.StatusBadRequest || response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+		responseReader = io.TeeReader(response.Body, &errorPreview)
 	}
 	observer := accounting.NewObserver(responseReader, contentType)
 	responseWriter := flushWriter{ResponseWriter: w}
-	restoreJSON := len(toolNames) > 0 && strings.Contains(strings.ToLower(contentType), "json")
-	restoreSSE := len(toolNames) > 0 && strings.Contains(strings.ToLower(contentType), "text/event-stream")
+	// Tool names belong to successful model content. Preserve error bodies,
+	// including malformed JSON, without passing them through response adaptation.
+	restoreJSON := successful && len(toolNames) > 0 && strings.Contains(strings.ToLower(contentType), "json")
+	restoreSSE := successful && len(toolNames) > 0 && strings.Contains(strings.ToLower(contentType), "text/event-stream")
 	adjustUsage := incoming.URL.Path == "/v1/messages" && successful && refusalOptions.Enabled
 	adjustJSON := adjustUsage && strings.Contains(strings.ToLower(contentType), "json")
 	adjustSSE := adjustUsage && strings.Contains(strings.ToLower(contentType), "text/event-stream")
@@ -693,12 +695,21 @@ func (s *Server) forward(w http.ResponseWriter, incoming *http.Request) {
 			"ingress", ingress.Name, "account", selected.Account.Alias, "names_changed", restoredToolNames)
 	}
 	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
-		code, reason := claudeoauth.ErrorDiagnostics(authPreview.body)
+		code, reason := claudeoauth.ErrorDiagnostics(errorPreview.body)
 		event.Error = fmt.Sprintf("upstream authentication rejected (code=%s reason=%s)", code, reason)
 		slog.Warn("upstream authentication rejected", "request_id", requestID, "account", selected.Account.Alias,
 			"path", incoming.URL.Path, "ingress", ingress.Name, "status", response.StatusCode,
 			"code", code, "reason", reason, "expires_at", selected.Account.ExpiresAt,
-			"last_refresh_at", selected.Account.LastRefreshAt, "body_truncated", authPreview.truncated)
+			"last_refresh_at", selected.Account.LastRefreshAt, "body_truncated", errorPreview.truncated)
+	}
+	if copyErr == nil {
+		event.UpstreamErrorCategory = classifyUpstreamError(response.StatusCode, errorPreview)
+		if event.UpstreamErrorCategory != "" {
+			event.Error = "upstream classified request as third-party and requires extra usage"
+			slog.Warn("upstream third-party extra usage required", "request_id", requestID,
+				"ingress", ingress.Name, "account", selected.Account.Alias, "model", route.Model,
+				"status", response.StatusCode, "category", event.UpstreamErrorCategory)
+		}
 	}
 	observedUsage, servedModel, refusal := observer.Result(copyErr, route.Model)
 	if incoming.URL.Path == "/v1/messages" && successful && refusal.Seen {
@@ -778,12 +789,12 @@ func recordClientObservation(event *metrics.Event, client clientObservation) {
 
 // Capture a bounded preview while forwarding the original response unchanged.
 // A large or incomplete third-party error is diagnosed as unknown, never dumped.
-type authenticationPreview struct {
+type upstreamErrorPreview struct {
 	body      []byte
 	truncated bool
 }
 
-func (p *authenticationPreview) Write(data []byte) (int, error) {
+func (p *upstreamErrorPreview) Write(data []byte) (int, error) {
 	n := len(data)
 	remaining := (8 << 10) - len(p.body)
 	if len(data) > remaining {
