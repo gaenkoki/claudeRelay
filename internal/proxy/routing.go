@@ -318,8 +318,8 @@ func (e safeSelectionError) ClientMessage() string { return e.clientMessage }
 type localRateLimitError struct{ safeSelectionError }
 
 const (
-	relayCapacityClientMessage = "relay capacity limit reached; retry later"
-	accountUnavailableMessage  = "no account is currently available; retry later"
+	relayCapacityClientMessage = "This group has reached its concurrent request limit. Please try again later. / 当前分组并发请求数已达上限，请稍后重试。"
+	accountUnavailableMessage  = "This group is currently at capacity. Please try again later. / 当前分组负载已达上限，请稍后重试。"
 )
 
 func selectionFailed(clientMessage, format string, args ...any) error {

@@ -559,8 +559,6 @@ const FIVE_HOUR_CHART_COLORS = [
   "var(--chart-5)", "var(--chart-6)", "var(--chart-7)", "var(--chart-8)",
 ];
 const FIVE_HOUR_CHART_DASHES = ["", "8 4", "2 3", "10 3 2 3"];
-const FIVE_HOUR_CHART_DEFAULT_SERIES = 6;
-const FIVE_HOUR_ACCOUNT_CHOICE_LIMIT = 50;
 
 function renderExhaustedWindowChart(windows) {
   const chart = $("fiveHourExhaustedChart");
@@ -580,7 +578,7 @@ function renderExhaustedWindowChart(windows) {
   }
   if (!state.fiveHourChartSelectionInitialized || state.selectedFiveHourChartAccounts.size === 0) {
     state.selectedFiveHourChartAccounts.clear();
-    for (const account of helper?.recentAccounts(series, FIVE_HOUR_CHART_DEFAULT_SERIES) || []) {
+    for (const account of accounts) {
       state.selectedFiveHourChartAccounts.add(account);
     }
     state.fiveHourChartSelectionInitialized = true;
@@ -701,7 +699,7 @@ function renderFiveHourChartAccountPicker(series, windows) {
   count.textContent = `${state.selectedFiveHourChartAccounts.size}/${formatTokens(series.length)}`;
 
   const renderOptions = () => {
-    const result = helper?.accountChoices(series, search.value, FIVE_HOUR_ACCOUNT_CHOICE_LIMIT) || { choices: [], matchCount: 0 };
+    const result = helper?.accountChoices(series, search.value) || { choices: [], matchCount: 0 };
     const list = $("fiveHourAccountList");
     list.replaceChildren();
     for (const value of result.choices) {
@@ -736,11 +734,7 @@ function renderFiveHourChartAccountPicker(series, windows) {
     }
 
     const note = $("fiveHourAccountPickerNote");
-    if (result.matchCount > FIVE_HOUR_ACCOUNT_CHOICE_LIMIT) {
-      note.textContent = `匹配 ${formatTokens(result.matchCount)} 个，仅显示最近 ${FIVE_HOUR_ACCOUNT_CHOICE_LIMIT} 个；继续输入可缩小范围。`;
-    } else {
-      note.textContent = `匹配 ${formatTokens(result.matchCount)} 个 · 可继续勾选账号加入比较`;
-    }
+    note.textContent = `匹配 ${formatTokens(result.matchCount)} 个 · 可勾选账号调整比较范围`;
   };
   search.oninput = renderOptions;
   renderOptions();

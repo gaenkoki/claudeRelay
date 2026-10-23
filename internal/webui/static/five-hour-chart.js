@@ -73,18 +73,12 @@
     });
   }
 
-  function recentAccounts(series, limit) {
-    const safeLimit = Math.max(0, Number(limit) || 0);
-    return seriesByRecency(series).slice(0, safeLimit).map((value) => value.account);
-  }
-
-  function accountChoices(series, query, limit) {
+  function accountChoices(series, query) {
     const normalized = String(query || "").trim().toLocaleLowerCase("zh-CN");
     const matches = seriesByRecency(series).filter((value) =>
       !normalized || value.account.toLocaleLowerCase("zh-CN").includes(normalized));
-    const safeLimit = Math.max(0, Number(limit) || 0);
-    return { choices: matches.slice(0, safeLimit), matchCount: matches.length };
+    return { choices: matches, matchCount: matches.length };
   }
 
-  return { FIVE_HOURS_MS, buildSeries, chartDomain, niceUpperBound, recentAccounts, accountChoices };
+  return { FIVE_HOURS_MS, buildSeries, chartDomain, niceUpperBound, accountChoices };
 });

@@ -38,7 +38,7 @@ test("invalid reset identities are omitted instead of inventing chart points", (
   assert.equal(chart.chartDomain(series), null);
 });
 
-test("thousands of accounts are reduced to a small recent default and bounded choices", () => {
+test("all accounts remain available and searchable without a fixed limit", () => {
   const windows = Array.from({ length: 1_000 }, (_, index) => ({
     account: `account-${String(index).padStart(4, "0")}`,
     resets_at: 1_000_000 + index * 10_000,
@@ -46,13 +46,10 @@ test("thousands of accounts are reduced to a small recent default and bounded ch
   }));
   const series = chart.buildSeries(windows);
 
-  assert.deepEqual(chart.recentAccounts(series, 6), [
-    "account-0999", "account-0998", "account-0997", "account-0996", "account-0995", "account-0994",
-  ]);
-  const unfiltered = chart.accountChoices(series, "", 50);
+  const unfiltered = chart.accountChoices(series, "");
   assert.equal(unfiltered.matchCount, 1_000);
-  assert.equal(unfiltered.choices.length, 50);
-  const searched = chart.accountChoices(series, "account-0001", 50);
+  assert.equal(unfiltered.choices.length, 1_000);
+  const searched = chart.accountChoices(series, "account-0001");
   assert.equal(searched.matchCount, 1);
   assert.equal(searched.choices[0].account, "account-0001");
 });
