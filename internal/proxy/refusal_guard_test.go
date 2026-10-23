@@ -133,7 +133,7 @@ func TestRefusalGuardForward(t *testing.T) {
 				if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 					t.Fatal(err)
 				}
-				if w.Code != 403 || response.Error.Type != "permission_error" || response.Error.Code != "refusal_cooldown" || response.Error.Seconds < 590 || response.Error.Seconds > 600 || !strings.Contains(response.Error.Message, "该会话已触发 refusal") || w.Header().Get("Retry-After") != strconv.FormatInt(response.Error.Seconds, 10) {
+				if w.Code != 403 || response.Error.Type != "permission_error" || response.Error.Code != "refusal_cooldown" || response.Error.Seconds < 590 || response.Error.Seconds > 600 || !strings.Contains(response.Error.Message, "请修改请求内容") || !strings.Contains(response.Error.Message, "Please revise the request content") || w.Header().Get("Retry-After") != strconv.FormatInt(response.Error.Seconds, 10) {
 					t.Fatalf("invalid cooldown response: status=%d body=%s", w.Code, w.Body.String())
 				}
 			}

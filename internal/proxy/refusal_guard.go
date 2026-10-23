@@ -174,7 +174,7 @@ func refusalContentBlock(block map[string]any) map[string]any {
 
 func writeRefusalCooldown(w http.ResponseWriter, state store.RefusalCooldown, now time.Time) string {
 	seconds := max(int64(1), (state.UntilAt-now.UnixMilli()+999)/1000)
-	message := fmt.Sprintf("该会话已触发 refusal，暂时无法继续对话，请等待 %d 分 %d 秒后重试。", seconds/60, seconds%60)
+	message := fmt.Sprintf("Request refused. Please revise the request content and retry in %d minutes %d seconds. / 请求已被拒绝，请修改请求内容，%d 分 %d 秒后重试。", seconds/60, seconds%60, seconds/60, seconds%60)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Retry-After", strconv.FormatInt(seconds, 10))
 	w.Header().Set("Cache-Control", "no-store")
