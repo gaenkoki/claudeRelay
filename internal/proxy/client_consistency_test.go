@@ -149,8 +149,8 @@ func TestOfficialIngressRejectsInconsistencyBeforeUpstream(t *testing.T) {
 			if w.Code != tc.status {
 				t.Fatalf("status=%d want=%d body=%s", w.Code, tc.status, w.Body.String())
 			}
-			if tc.status == 403 && (calls != before || !strings.Contains(w.Body.String(), tc.reason)) {
-				t.Fatalf("unexpected upstream call or missing reason: calls=%d body=%s", calls, w.Body.String())
+			if tc.status == 403 && (calls != before || strings.Contains(w.Body.String(), tc.reason) || !strings.Contains(w.Body.String(), "该分组仅支持 Claude Code 请求")) {
+				t.Fatalf("unexpected upstream call or invalid public message: calls=%d body=%s", calls, w.Body.String())
 			}
 			if tc.status == 200 && calls != before+1 {
 				t.Fatalf("accepted request not forwarded: calls=%d", calls)

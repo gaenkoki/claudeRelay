@@ -426,7 +426,7 @@ func (s *Server) forward(w http.ResponseWriter, incoming *http.Request) {
 			event.RelayAction = "client_consistency_rejected"
 			slog.Warn("rejected inconsistent Claude Code request", "request_id", requestID, "ingress", ingress.Name,
 				"reasons", consistency.Violations)
-			fail(http.StatusForbidden, "permission_error", "This group only supports Claude Code requests. Please use the Claude Code client. / 该分组仅支持 Claude Code 请求，请使用 Claude Code 客户端。 Client identifiers are inconsistent / 客户端标识不一致 ("+strings.Join(consistency.Violations, ", ")+")")
+			fail(http.StatusForbidden, "permission_error", "This group only supports Claude Code requests. Please use the Claude Code client. / 该分组仅支持 Claude Code 请求，请使用 Claude Code 客户端。")
 			return
 		}
 		if consistency := route.Client.Consistency; consistency != nil && (consistency.Checksum == "mismatched" || consistency.CCH) {
