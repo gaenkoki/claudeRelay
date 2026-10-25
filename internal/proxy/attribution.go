@@ -15,8 +15,8 @@ import (
 
 const (
 	billingAttributionPrefix = "x-anthropic-billing-header:"
-	// Opus 5.5 requires Claude Code 2.1.280 or newer. Keep relay-generated
-	// attribution and account-check headers on the same minimum version.
+	// Opus 5.5 requires Claude Code 2.1.280 or newer. Use this baseline for
+	// account checks and requests without an aligned, recognized CLI release.
 	defaultClaudeCodeVersion = "2.1.280"
 	// This is a compatibility identifier, not a claim that claude-relay is Claude Desktop.
 	defaultBillingAttribution = "x-anthropic-billing-header: cc_version=" + defaultClaudeCodeVersion + "; cc_entrypoint=claude-desktop-3p;"
@@ -40,77 +40,97 @@ type attributionUserID struct {
 	SessionID   string `json:"session_id"`
 }
 
+type attributionOptions struct {
+	IncludeMetadata      bool
+	SessionSeed          string
+	AlignGeneratedFields bool
+}
+
+type subscriptionAttribution struct {
+	Body    []byte
+	Changed bool
+	// SessionHeader is set only when relay-generated metadata must replace an
+	// existing outgoing Claude Code session header. Routing uses the original.
+	SessionHeader string
+}
+
 // addSubscriptionAttribution adds only the minimum fields demonstrated by the
 // protocol experiments. Existing caller-owned billing and metadata fields are
 // preserved, including fields the relay does not interpret.
-func addSubscriptionAttribution(body []byte, headers http.Header, cred credential.Credential, includeMetadata bool, sessionSeed string) ([]byte, bool, error) {
+func addSubscriptionAttribution(body []byte, headers http.Header, cred credential.Credential, options attributionOptions) (subscriptionAttribution, error) {
+	result := subscriptionAttribution{Body: body}
 	var root map[string]any
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
 	if err := decoder.Decode(&root); err != nil {
-		return nil, false, fmt.Errorf("decode request body: %w", err)
+		return subscriptionAttribution{}, fmt.Errorf("decode request body: %w", err)
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return nil, false, fmt.Errorf("decode request body: trailing JSON value")
+		return subscriptionAttribution{}, fmt.Errorf("decode request body: trailing JSON value")
 	}
 	if root == nil {
-		return nil, false, fmt.Errorf("request body must be a JSON object")
+		return subscriptionAttribution{}, fmt.Errorf("request body must be a JSON object")
 	}
 
 	system, billingFound, err := inspectSystem(root["system"])
 	if err != nil {
-		return nil, false, err
+		return subscriptionAttribution{}, err
 	}
 
 	changed := false
 	if !billingFound {
-		billing := map[string]any{"type": "text", "text": defaultBillingAttribution}
+		billingText := defaultBillingAttribution
+		if options.AlignGeneratedFields {
+			userAgent := headers.Get("User-Agent")
+			tokens := strings.Fields(userAgent)
+			if version := extractClaudeCodeUAVersion(userAgent); version != "" && len(tokens) > 0 && strings.EqualFold(tokens[0], "claude-cli/"+version) {
+				// Match the existing outgoing CLI release without inventing a CLI
+				// User-Agent, fingerprint suffix, or CCH. Keep the tested API entrypoint.
+				billingText = billingAttributionPrefix + " cc_version=" + version + "; cc_entrypoint=claude-desktop-3p;"
+			}
+		}
+		billing := map[string]any{"type": "text", "text": billingText}
 		system = append([]any{billing}, system...)
 		root["system"] = system
 		changed = true
 	}
 
-	if !includeMetadata {
-		if !changed {
-			return body, false, nil
-		}
-		transformed, err := json.Marshal(root)
+	if options.IncludeMetadata {
+		metadata, err := metadataObject(root["metadata"])
 		if err != nil {
-			return nil, false, fmt.Errorf("encode attributed request body: %w", err)
+			return subscriptionAttribution{}, err
 		}
-		return transformed, true, nil
-	}
-
-	metadata, err := metadataObject(root["metadata"])
-	if err != nil {
-		return nil, false, err
-	}
-	if existing, _ := metadata["user_id"].(string); strings.TrimSpace(existing) == "" {
-		sessionID, err := attributionSessionID(headers, cred.DeviceID, sessionSeed)
-		if err != nil {
-			return nil, false, err
+		if existing, _ := metadata["user_id"].(string); strings.TrimSpace(existing) == "" {
+			sessionID, err := attributionSessionID(headers, cred.DeviceID, options.SessionSeed)
+			if err != nil {
+				return subscriptionAttribution{}, err
+			}
+			value, err := json.Marshal(attributionUserID{
+				DeviceID:    cred.DeviceID,
+				AccountUUID: cred.AccountUUID,
+				SessionID:   sessionID,
+			})
+			if err != nil {
+				return subscriptionAttribution{}, fmt.Errorf("encode metadata user identity: %w", err)
+			}
+			metadata["user_id"] = string(value)
+			root["metadata"] = metadata
+			changed = true
+			if options.AlignGeneratedFields && strings.TrimSpace(headers.Get(claudeCodeSessionHeader)) != "" {
+				result.SessionHeader = sessionID
+			}
 		}
-		value, err := json.Marshal(attributionUserID{
-			DeviceID:    cred.DeviceID,
-			AccountUUID: cred.AccountUUID,
-			SessionID:   sessionID,
-		})
-		if err != nil {
-			return nil, false, fmt.Errorf("encode metadata user identity: %w", err)
-		}
-		metadata["user_id"] = string(value)
-		root["metadata"] = metadata
-		changed = true
 	}
 
 	if !changed {
-		return body, false, nil
+		return result, nil
 	}
 	transformed, err := json.Marshal(root)
 	if err != nil {
-		return nil, false, fmt.Errorf("encode attributed request body: %w", err)
+		return subscriptionAttribution{}, fmt.Errorf("encode attributed request body: %w", err)
 	}
-	return transformed, true, nil
+	result.Body, result.Changed = transformed, true
+	return result, nil
 }
 
 func inspectSystem(value any) (system []any, billingFound bool, err error) {

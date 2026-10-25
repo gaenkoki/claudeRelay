@@ -545,7 +545,7 @@ func (s *Server) checkAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body := []byte(`{"model":"` + checkModel + `","messages":[{"role":"user","content":"ping"}]}`)
-	attributed, _, err := addSubscriptionAttribution(body, http.Header{}, account.Credential, false, "")
+	attributed, err := addSubscriptionAttribution(body, http.Header{}, account.Credential, attributionOptions{})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "api_error", "failed to build check request")
 		return
@@ -556,7 +556,7 @@ func (s *Server) checkAccount(w http.ResponseWriter, r *http.Request) {
 	target := *s.upstream
 	target.Path = strings.TrimRight(s.upstream.Path, "/") + "/v1/messages/count_tokens"
 	target.RawQuery = "beta=true"
-	request, err := http.NewRequestWithContext(withAccountExit(ctx, account), http.MethodPost, target.String(), bytes.NewReader(attributed))
+	request, err := http.NewRequestWithContext(withAccountExit(ctx, account), http.MethodPost, target.String(), bytes.NewReader(attributed.Body))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "api_error", "failed to build check request")
 		return

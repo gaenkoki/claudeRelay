@@ -277,3 +277,53 @@ retains only a fixed diagnostic, not the upstream body or message. Error respons
 bypass tool-name restoration and are forwarded unchanged, including malformed JSON.
 The console shows the category and counts. This diagnostic applies across ingresses
 and does not change routing, retries, billing, or request semantics.
+
+## 2026-10-25: generated attribution consistency and identity controls
+
+### RN identity control matrix
+
+Nine serial synthetic Opus 5.5 Messages requests ran through the deployed experimental
+ingress on one pinned account at 18:46 Asia/Shanghai. The request body explicitly supplied
+the billing block and JSON-string metadata to isolate each identity/header contrast.
+The new local alignment implementation was not deployed for this matrix.
+
+| Case | Result |
+| --- | --- |
+| Actual selected-account UUID and stored device ID, matching session header (four interleaved controls) | 200 |
+| Only account UUID replaced with a random valid UUID | 200 |
+| Only device ID replaced with another 64-hex ID | 200 |
+| Only outgoing session header changed to disagree with metadata | 200 |
+| CLI 2.1.295 User-Agent with billing version 2.1.280 | 200 |
+| Same CLI User-Agent with billing version 2.1.295 | 200 |
+
+All nine responses declared `five_hour`; extra usage was disabled and reported credits
+remained zero. Total reported usage was 234 ordinary input and 36 output tokens. The
+rounded five-hour reading remained 0%. This one-account, one-model matrix does not
+prove that mismatches are ignored on every upstream path or that identity rewrites
+reduce risk. It provides no present acceptance justification for overriding existing
+caller identities. Missing metadata still receives the existing stable account identity.
+
+The harness and results are under ignored `data/attribution-research-2026-10-25/`.
+It read only account/device IDs through a remote read-only SQLite connection, never
+exported those identities or credentials, and made no account/configuration changes.
+
+### Implemented experimental policy
+
+- Only newly generated billing follows a recognizable outgoing CLI release. The existing
+  `claude-desktop-3p` entrypoint is retained; no CLI UA, version suffix, or CCH is invented.
+  Non-CLI/unrecognized UAs retain the existing default attribution. Old recognized CLI
+  releases are not silently upgraded; upstream version requirements still apply.
+- If the relay generates missing Messages metadata and a Claude Code session header
+  already exists, only that outgoing header is set to the generated metadata session.
+  Absent headers and generic session headers are not synthesized or redefined.
+- Incoming headers and routing keys remain caller-owned. Each account attempt derives
+  its own identity from the original request, so failover does not hash an already
+  transformed session or carry the previous account's identity into the next attempt.
+- Existing metadata identities, billing text, CCH, and unknown fields are preserved.
+  Count-tokens requests still receive no metadata. Compatible and official ingress and
+  relay-generated account checks retain their prior attribution policy.
+
+Local regression tests capture outgoing header/body agreement and stable repeated
+requests, preserve the caller's input and opaque CCH, and exercise a two-account 503
+failover. These changes remove known relay-generated contradictions; this matrix did
+not establish an increase in real upstream acceptance or a reduction in risk scoring.

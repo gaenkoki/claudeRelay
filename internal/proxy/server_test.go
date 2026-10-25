@@ -1021,16 +1021,17 @@ func TestAttributionTransformIsIdempotent(t *testing.T) {
 	}
 	headers := http.Header{"X-Session-Id": []string{"stable-session"}}
 	body := []byte(`{"system":[{"type":"text","text":"keep me"}],"messages":[]}`)
-	first, changed, err := addSubscriptionAttribution(body, headers, cred, true, "")
-	if err != nil || !changed {
-		t.Fatalf("first transform: changed=%v err=%v", changed, err)
+	options := attributionOptions{IncludeMetadata: true}
+	first, err := addSubscriptionAttribution(body, headers, cred, options)
+	if err != nil || !first.Changed {
+		t.Fatalf("first transform: changed=%v err=%v", first.Changed, err)
 	}
-	second, changed, err := addSubscriptionAttribution(first, headers, cred, true, "")
+	second, err := addSubscriptionAttribution(first.Body, headers, cred, options)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if changed || string(second) != string(first) {
-		t.Fatalf("second transform was not idempotent: changed=%v\n%s\n%s", changed, first, second)
+	if second.Changed || string(second.Body) != string(first.Body) {
+		t.Fatalf("second transform was not idempotent: changed=%v\n%s\n%s", second.Changed, first.Body, second.Body)
 	}
 }
 

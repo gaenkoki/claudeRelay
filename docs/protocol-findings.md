@@ -92,6 +92,11 @@ does not by itself prove how Anthropic classified subscription usage.
   `cc_entrypoint=claude-desktop-3p` for synthetic requests. Unlike the historical capture above,
   this is a compatibility floor rather than a captured full build identifier and must be revisited
   after later client or model changes.
+- **Experimental policy, 2026-10-25:** only a newly generated billing block follows a recognized
+  outgoing `claude-cli/x.y.z` release. Other User-Agents retain the default version, without
+  replacing the User-Agent. Existing billing blocks, entrypoints, version suffixes, and CCH are
+  preserved. This removes a relay-generated version contradiction; acceptance gain was not shown
+  by the nine-request control matrix in `protocol-experiments.md`.
 - A third-party algorithm claiming to derive the final three hex characters from message content
   produced `68d` for both exact captured requests, while the official value was `0a7`. It is not
   used here.
@@ -151,6 +156,13 @@ does not by itself prove how Anthropic classified subscription usage.
   xxHash64 algorithm did not reproduce either official CCH. The algorithm changed by 2.1.219.
 - sub2api removed CCH based on an unrelated issue reference and has not introduced a replacement
   algorithm as of its 2026-07-29 main branch.
+- **Source recheck, 2026-10-25:** sub2api's current
+  [`buildBillingAttributionText`](https://github.com/Wei-Shaw/sub2api/blob/3f1c8f36ce8c2cd378015830a90e89970b9a9ea7/backend/internal/service/gateway_billing_block.go#L82)
+  still generates version/fingerprint and entrypoint only, without CCH. Nearby signing comments
+  and legacy settings remain; they do not establish an active signing step. The builder's broad
+  comment that newer clients no longer send CCH does not replace the auth-path distinction seen
+  in our own captures: the tested API-login traffic omitted CCH, while historical qualifying
+  OAuth/Vertex paths could emit it. No new OAuth-client capture was performed in this recheck.
 - **Current policy:** CCH is an opaque caller-owned billing field. The relay does not generate,
   calculate, validate, bind accounts, or alter failover based on it. Classifier v6 records only
   presence, never the value, and does not reject its presence. Existing billing text is preserved

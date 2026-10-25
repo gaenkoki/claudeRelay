@@ -539,25 +539,36 @@ func (s *Server) forward(w http.ResponseWriter, incoming *http.Request) {
 			continue
 		}
 		selected.Account = freshAccount
-		transformedBody, changed, transformErr := addSubscriptionAttribution(body, incoming.Header, selected.Account.Credential, includeMetadata, route.ConversationKey)
+		attributed, transformErr := addSubscriptionAttribution(body, incoming.Header, selected.Account.Credential, attributionOptions{
+			IncludeMetadata: includeMetadata, SessionSeed: route.ConversationKey,
+			AlignGeneratedFields: ingress.AlignGeneratedAttribution,
+		})
 		if transformErr != nil {
 			fail(http.StatusBadRequest, "invalid_request_error", transformErr.Error())
 			return
 		}
 		switch {
-		case changed && normalizedToolNames > 0:
+		case attributed.Changed && normalizedToolNames > 0:
 			event.RelayAction = "minimal_attribution_and_tool_name_normalization"
-		case changed:
+		case attributed.Changed:
 			event.RelayAction = "minimal_attribution"
 		case normalizedToolNames > 0:
 			event.RelayAction = "tool_name_normalization"
 		default:
 			event.RelayAction = "unchanged"
 		}
-		if changed {
+		if attributed.Changed {
 			slog.Info("added subscription attribution", "request_id", requestID, "path", incoming.URL.Path, "ingress", ingress.Name, "account", selected.Account.Alias)
 		}
-		response, err = s.doUpstream(incoming, transformedBody, selected.Account)
+		upstreamIncoming := incoming
+		if attributed.SessionHeader != "" {
+			// Keep admission, routing, and retry seeds tied to caller-owned input.
+			// Only this account's outgoing attempt receives the generated session.
+			upstreamIncoming = incoming.Clone(incoming.Context())
+			upstreamIncoming.Header.Set(claudeCodeSessionHeader, attributed.SessionHeader)
+			slog.Info("aligned generated attribution session", "request_id", requestID, "ingress", ingress.Name, "account", selected.Account.Alias)
+		}
+		response, err = s.doUpstream(upstreamIncoming, attributed.Body, selected.Account)
 		if err == nil && !retryableStatus(response.StatusCode) {
 			break
 		}

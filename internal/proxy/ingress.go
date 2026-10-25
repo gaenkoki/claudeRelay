@@ -9,10 +9,11 @@ const (
 )
 
 type ingressPolicy struct {
-	Name               string
-	AccountAccess      store.AccountAccess
-	RequireClaudeCode  bool
-	NormalizeToolNames bool
+	Name                      string
+	AccountAccess             store.AccountAccess
+	RequireClaudeCode         bool
+	NormalizeToolNames        bool
+	AlignGeneratedAttribution bool
 }
 
 var (
@@ -21,9 +22,10 @@ var (
 		AccountAccess: store.AccountAccessCompatibleOnly,
 	}
 	experimentalIngress = ingressPolicy{
-		Name:               ingressExperimental,
-		AccountAccess:      store.AccountAccessCompatibleOnly,
-		NormalizeToolNames: true,
+		Name:                      ingressExperimental,
+		AccountAccess:             store.AccountAccessCompatibleOnly,
+		NormalizeToolNames:        true,
+		AlignGeneratedAttribution: true,
 	}
 	officialIngress = ingressPolicy{
 		Name:              ingressOfficial,
